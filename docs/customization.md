@@ -22,6 +22,8 @@
 | `DCC_ENV_FILE` | `$DCC_CONFIG_DIR/.env` | 読み込む env ファイル |
 | `DCC_WORKSPACE` | `$PWD` | ワークスペースの既定（引数で上書き可） |
 | `DCC_CREDS` | 空 | `--creds` の既定値（[credentials.md](credentials.md)） |
+| `DCC_AGENT` | `claude` | `--agent` の既定値。`claude` か `codex` |
+| `DCC_CLAUDE_ARGS` / `DCC_CODEX_ARGS` | 空 / `-c sandbox_mode=danger-full-access -c check_for_update_on_startup=false` | `dcc` がエージェントの起動時に利用者の引数の前へ足す引数。空白区切りで引用は解釈しない。空文字を設定すると何も足さない。codex の既定の理由は [codex.md](codex.md) |
 | `DCC_VERBOSE` | 空 | `1` で compose / フックの出力を常に流す（既定では失敗時だけ全部出す） |
 | `DCC_LOCAL_DIR` | `$DCC_CONFIG_DIR/local` | 個人設定の置き場。`Dockerfile` / `compose.yml` があれば自動で使う（下記） |
 | `DCC_COMPOSE_FILES` | 空 | `local/compose.yml` に加えてさらに足す compose overlay（コロン区切りの絶対パス） |
@@ -35,6 +37,8 @@
 | `DCC_GITCONFIG` | `~/.gitconfig` | 常時マウントするホスト側パス |
 | `DCC_CLAUDE_DIR` / `DCC_CLAUDE_JSON` | `~/.claude` / `~/.claude.json` | `claude` モジュールが共有するホスト側パス |
 | `DCC_CLAUDE_HOME_VOLUME` | `dcc-claude-home` | `claude` モジュール無効時に `~/.claude` になる空の外部 volume の名前（全ワークスペース共有） |
+| `DCC_CODEX_DIR` | `~/.codex` | `codex` モジュールが共有するホスト側パス |
+| `DCC_CODEX_HOME_VOLUME` | `dcc-codex-home` | `codex` モジュール無効時に `~/.codex` になる空の外部 volume の名前（全ワークスペース共有） |
 | `DCC_AWS_DIR` | `~/.aws` | `aws` モジュールが sidecar に渡す `config` / `login/cache` の親 |
 | `DCC_AWS_REGION` / `DCC_AWS_PROFILE` | `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1` / `AWS_PROFILE` → `default` | `aws` sidecar の region / profile |
 | `DCC_AWS_CREDENTIALS_PORT` | `8080` | credential endpoint のポート（共有 netns 内で inner container の `-p` と衝突する場合に変える） |
@@ -136,7 +140,7 @@ local/Dockerfile  ──build──► dcc:local  (DCC_IMAGE) ← 本体コン�
 
 ### base イメージの中身を減らしたいとき
 
-このリポジトリの `Dockerfile` には Go / AWS CLI / `gh` / `yq` / `duckdb` / `uv` / `jsonnet` などが入っている
+このリポジトリの `Dockerfile` には Claude Code と Codex CLI のほか、Go / AWS CLI / `gh` / `yq` / `duckdb` / `uv` / `jsonnet` などが入っている
 （[architecture.md](architecture.md) の「本体イメージ」）。足すのは `local/Dockerfile` で済むが、減らす仕組みは無い。
 不要なレイヤがあるなら fork して `Dockerfile` を編集する。Docker CLI（sidecar への接続）、git / gnupg / curl / jq
 （`gpg` モジュールの wrapper が使う）、sudo（postCreate が使う）は外さないこと。
@@ -149,6 +153,7 @@ local/Dockerfile  ──build──► dcc:local  (DCC_IMAGE) ← 本体コン�
 | `shasum` または `sha256sum` | compose プロジェクト名のハッシュ | どちらかは必要 |
 | `~/.gitconfig`（`DCC_GITCONFIG`） | git 設定（常時マウント） | 下記「bind のソースが無いとき」。空でよいので作る（`touch ~/.gitconfig`） |
 | `~/.claude/`、`~/.claude.json`（`DCC_CLAUDE_DIR` / `DCC_CLAUDE_JSON`） | `claude` モジュール時のみ | ホストで Claude Code を一度でも起動していれば存在する。`initialize.sh claude` が事前に警告する |
+| `~/.codex/`（`DCC_CODEX_DIR`） | `codex` モジュール時のみ | ホストで Codex を一度でも起動していれば存在する。`initialize.sh codex` が事前に警告する |
 | `~/.aws/config`、`~/.aws/login/cache`（`DCC_AWS_DIR`） | `aws` モジュール時のみ | `initialize.sh aws` が事前に警告する。ホストで `aws login` する |
 | `~/.gnupg/private-keys-v1.d/`（`DCC_GNUPG_DIR`）、`gpg` コマンド | `gpg` モジュール時のみ | `initialize.sh gpg` が警告する。`gpg` コマンドが無いだけなら署名なしで動く |
 | `devcontainer` CLI / VS Code Dev Containers | devcontainer から compose を参照して使う場合のみ（[devcontainer.md](devcontainer.md)） | `dcc` には不要 |

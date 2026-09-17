@@ -20,13 +20,14 @@ build_image() {
   done_step built "${SECONDS}s"
 }
 
-# claude モジュールを外したときの ~/.claude は固定名の外部 volume (全ワークスペース共有。
-# compose は external volume を作らず、down --volumes でも消さない)
-ensure_claude_home_volume() {
-  has_cred claude && return 0
-  docker volume inspect "$CLAUDE_HOME_VOLUME" >/dev/null 2>&1 && return 0
-  step volume "creating $CLAUDE_HOME_VOLUME for ~/.claude" "claude module off"
-  run_step volume docker volume create "$CLAUDE_HOME_VOLUME"
+# claude / codex モジュールを外したときの ~/.claude / ~/.codex は固定名の外部 volume (全ワークスペース共有。
+# compose は external volume を作らず、down --volumes でも消さない)。base が両方を参照するので、使わない
+# エージェントの分も作る。$1: モジュール名、$2: volume 名、$3: 表示用のパス
+ensure_home_volume() {
+  has_cred "$1" && return 0
+  docker volume inspect "$2" >/dev/null 2>&1 && return 0
+  step volume "creating $2 for $3" "$1 module off"
+  run_step volume docker volume create "$2"
 }
 
 # 本体イメージが無ければ compose が up 時に build するが、その FROM 先の base は作られない
@@ -54,7 +55,7 @@ warm_gpg() {
   if "$CAPABILITIES_DIR/gpg/warm.sh" -p "$COMPOSE_PROJECT_NAME"; then
     step gpg "passphrase cached in gpg-signer" "signing key $(short_key "$key")"
   else
-    warn gpg "passphrase not cached; signed commits inside claude may fail" \
+    warn gpg "passphrase not cached; signed commits inside the container may fail" \
       "run '$CAPABILITIES_DIR/gpg/warm.sh -p $COMPOSE_PROJECT_NAME' to retry"
   fi
 }
@@ -80,7 +81,10 @@ up_container() {
   fi
   check_drift
   compose_files "$CREDS"
-  ensure_claude_home_volume
+  # shellcheck disable=SC2088  # "~/.claude" は表示用の文字列で、展開させない
+  ensure_home_volume claude "$CLAUDE_HOME_VOLUME" "~/.claude"
+  # shellcheck disable=SC2088
+  ensure_home_volume codex "$CODEX_HOME_VOLUME" "~/.codex"
   ensure_base_image
   local -a up_opts=(-d --no-recreate)
   if compose "${COMPOSE_FILES[@]}" config --images | xargs docker image inspect >/dev/null 2>&1; then
@@ -91,10 +95,22 @@ up_container() {
   run_post_create
 }
 
-# ここで端末を claude に渡す。claude の終了コードがそのまま dcc の終了コードになる
-exec_claude() {
+# dcc が $AGENT の起動時に先頭へ足す引数 (DCC_CLAUDE_ARGS / DCC_CODEX_ARGS。load_config が既定を決める)
+agent_args() {
+  case "$AGENT" in
+    claude) printf '%s' "$CLAUDE_ARGS" ;;
+    codex) printf '%s' "$CODEX_ARGS" ;;
+  esac
+}
+
+# ここで端末をエージェント (claude / codex) に渡す。その終了コードがそのまま dcc の終了コードになる。
+# 既定引数は空白で分割するだけ (引用は解釈しない)。利用者の引数はその後ろに、1 つずつそのまま渡す
+exec_agent() {
+  local -a preset=()
+  read -r -a preset <<<"$(agent_args)"
   done_step ready "${SECONDS}s"
-  compose exec --user "$REMOTE_USER" --workdir "$REMOTE_WORKSPACE" agent claude "$@"
+  compose exec --user "$REMOTE_USER" --workdir "$REMOTE_WORKSPACE" agent \
+    "$AGENT" "${preset[@]+"${preset[@]}"}" "$@"
 }
 
 stop_containers() {

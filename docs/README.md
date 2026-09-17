@@ -1,6 +1,6 @@
 # docs
 
-Claude Code 用コンテナ設定の仕様と、ホスト ⇔ コンテナ間で認証情報や設定をどう受け渡しているか
+Claude Code / Codex CLI 用コンテナ設定の仕様と、ホスト ⇔ コンテナ間で認証情報や設定をどう受け渡しているか
 （境界の扱い）をまとめたもの。使い始め方はリポジトリ直下の [README.md](../README.md)。
 
 読む順の目安: 仕組みを知りたいなら [architecture.md](architecture.md)、何が守られて何が守られないかを
@@ -26,14 +26,15 @@ Claude Code 用コンテナ設定の仕様と、ホスト ⇔ コンテナ間で
 | [github.md](github.md) | GitHub CLI (`gh`) の認証 | `gh` | `<repo>/capabilities/gh/data/`（gitignore） | `~/.config/gh` (rw) |
 | [git.md](git.md) | gitconfig、safe.directory、署名設定 | 常時 | `~/.gitconfig` | `~/.gitconfig` (ro) + system gitconfig |
 | [claude-code.md](claude-code.md) | Claude Code の設定・セッション・プラグイン | `claude` | `~/.claude`、`~/.claude.json` | 有効時 `~/.claude` (rw)。無効時は全ワークスペース共有の空の volume |
-| [mcp.md](mcp.md) | MCP サーバーの設定と OAuth token | 常時（`claude` に依存） | 設定は `~/.claude.json` / `.mcp.json`。token は macOS Keychain（**渡さない**） | コンテナ内で認証して `~/.claude/.credentials.json` に保存 |
+| [codex.md](codex.md) | Codex CLI の設定・認証・セッション、Codex 自身の sandbox の扱い | `codex` | `~/.codex`（`auth.json` = token を含む） | 有効時 `~/.codex` (rw)。無効時は全ワークスペース共有の空の volume |
+| [mcp.md](mcp.md) | Claude Code の MCP サーバーの設定と OAuth token | 常時（`claude` に依存） | 設定は `~/.claude.json` / `.mcp.json`。token は macOS Keychain（**渡さない**） | コンテナ内で認証して `~/.claude/.credentials.json` に保存 |
 | [docker.md](docker.md) | Docker（rootless sidecar）と TLS 証明書 | 常時 | なし（ホストの Docker は使わない） | `DOCKER_HOST=tcp://docker:2376` + `/certs` (ro) |
 
 「モジュール」列の名前を `dcc --creds <name>` で指定したときだけコンテナに渡る。「常時」は選択に関係なくマウントされる。
 
 ### 各ページの構成
 
-境界ごとのページは同じ見出しで書く。本体コンテナは Claude Code が任意コードを実行しうる場所として、
+境界ごとのページは同じ見出しで書く。本体コンテナはエージェント（Claude Code / Codex）が任意コードを実行しうる場所として、
 **侵害されうる前提**で境界を説明する（[boundaries.md](boundaries.md)）。
 
 | 節 | 書くこと |
@@ -51,7 +52,8 @@ Claude Code 用コンテナ設定の仕様と、ホスト ⇔ コンテナ間で
 |---|---|
 | ホスト | `dcc` を実行する開発者のマシン |
 | ワークスペース | コンテナに渡すプロジェクトディレクトリ。コンテナ内では `/workspaces/<basename>` |
-| 本体（本体コンテナ） | compose の `agent` サービス。Claude Code が動く非特権のコンテナ |
+| 本体（本体コンテナ） | compose の `agent` サービス。エージェントが動く非特権のコンテナ |
+| エージェント | 本体で動かす CLI。`claude`（Claude Code）か `codex`（Codex CLI）。両方とも同じイメージに入っており、`--agent` で起動のたびに選ぶ |
 | Docker sidecar | compose の `docker` サービス。rootless の dockerd を提供する。`privileged` はここだけ |
 | モジュール sidecar | credential モジュールが追加する非特権の sidecar（`gpg-signer` / `aws-credentials`） |
 | inner container | 本体から `docker run` して Docker sidecar の中で動くコンテナ |

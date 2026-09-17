@@ -5,11 +5,11 @@
 
 ## 目的
 
-Claude Code をホスト（開発者のマシン）から隔離したコンテナ内で動かす。要件は次の 3 つ。
+コーディングエージェント（Claude Code / Codex CLI）をホスト（開発者のマシン）から隔離したコンテナ内で動かす。要件は次の 3 つ。
 
 1. **ホストの秘密情報を必要最小限だけ、できるだけ read-only でコンテナに渡す。**
 2. **コンテナ内から Docker が使える**（`docker run` / `docker compose` / `docker build`）。ただし
-   Claude が Docker 経由でホストや本体コンテナの権限を昇格できないこと。
+   エージェントが Docker 経由でホストや本体コンテナの権限を昇格できないこと。
 3. 任意のワークスペース（プロジェクトディレクトリ）から 1 コマンドで起動できること。
 
 ## 構成要素
@@ -30,6 +30,7 @@ Claude Code をホスト（開発者のマシン）から隔離したコンテ�
 | `lifecycle_hooks/postCreate.sh` | コンテナ作成後フック（コンテナ内で実行）。`dcc` は作成直後に自前で呼び、devcontainer では `postCreateCommand` に書く |
 | `capabilities/gpg/` | `gpg` モジュールの署名 sidecar（`server.py` が commit / tag に署名）とホスト側スクリプト（`export-host-keys.sh` / `warm.sh`）。[gpg.md](gpg.md) |
 | `capabilities/claude/` | `claude` モジュールの overlay（ホストの `~/.claude` / `~/.claude.json` の bind）。[claude-code.md](claude-code.md) |
+| `capabilities/codex/` | `codex` モジュールの overlay（ホストの `~/.codex` の bind）。[codex.md](codex.md) |
 | `capabilities/aws/` | `aws` モジュールの credential sidecar のイメージ（[aws.md](aws.md)） |
 | `capabilities/ssh/data/`, `capabilities/gh/data/`, `capabilities/gpg/gnupg-host/` | gitignore 済み。コンテナへ bind するホスト側の実体（[boundaries.md](boundaries.md)） |
 
@@ -94,7 +95,8 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 
 - `image: dcc:local` + `build:` を併記し、全ワークスペースで 1 つのイメージタグを共有する
   （`image` がないと `<project>-agent` としてワークスペースごとにビルドされる）。
-- `command: ['sleep', 'infinity']` でコンテナを生かし、`dcc` は `docker compose exec` で claude を起動する。
+- `command: ['sleep', 'infinity']` でコンテナを生かし、`dcc` は `docker compose exec` でエージェント（`claude` / `codex`）を起動する。
+  どちらを起動するかはコンテナの属性ではなく、呼び出しごとに `--agent` で選ぶ。
   `init: true` で tini を PID 1 にし、`stop` の SIGTERM が `sleep` に届いて即終了するようにする
   （`sleep` が PID 1 だと SIGTERM を無視し、grace period の 10 秒待ってから kill される）。
 - `network_mode: service:docker` で sidecar の netns に join する。副作用として `ports` / `hostname` /
@@ -106,8 +108,8 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
   `HOST_HOME`（ホストの `$HOME`。[claude-code.md](claude-code.md) の plugin パス解決に使う）、
   `DCC_CREDS`（有効な credential モジュール、カンマ区切り）、`TZ`。利用者の環境変数は
   `DCC_CONTAINER_ENV_<NAME>` から `dcc` が集めた dotenv ファイルを `env_file` で読む（[customization.md](customization.md)）。
-- volume: `~/.gitconfig`（ro bind）、`~/.claude`（固定名の external volume `dcc-claude-home`。`claude` モジュールが
-  同じ target をホストの bind で上書きする）、`/certs`（ro）、`lifecycle_hooks/`（ro bind）。ワークスペースは
+- volume: `~/.gitconfig`（ro bind）、`~/.claude` / `~/.codex`（固定名の external volume `dcc-claude-home` / `dcc-codex-home`。
+  `claude` / `codex` モジュールが同じ target をホストの bind で上書きする）、`/certs`（ro）、`lifecycle_hooks/`（ro bind）。ワークスペースは
   workspace overlay、それ以外は credential overlay が足す（一覧は [boundaries.md](boundaries.md)）。
 - ラベル `dcc.credentials`: `DCC_CREDS` と同じ値。フラグ無しの `dcc` が既存コンテナの選択を引き継ぐのと、
   不一致（drift）の検出に使う（[credentials.md](credentials.md)）。workspace overlay は `dcc.workspace`
@@ -139,6 +141,7 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 | 8 | `jsonnet` / `jsonnetfmt`（go-jsonnet を Go でビルド） |
 | 9 | AWS CLI v2 |
 | 10 | `uv` / `uvx` |
+| 11 | Codex CLI（GitHub Releases の `codex-package-<target>.tar.gz` を `codex-package_SHA256SUMS` で検証して `/opt/codex` に展開し、`/usr/local/bin/codex` に symlink。`bwrap` と `rg` を同梱。Node は不要。更新はイメージの rebuild。[codex.md](codex.md)） |
 
 基本パッケージには git / git-lfs / gnupg / pinentry-curses / openssh-client / curl / jq / rsync /
 strace / gcc / g++ / make / python3 / pip / venv などが含まれる。
@@ -170,7 +173,8 @@ devcontainer の両方から同じスクリプトを呼ぶ。
 ワークスペースを cwd としてコンテナユーザーで実行され、次を行う:
 
 1. `claude update`（焼き込み版をコンテナ層で最新化。recreate で焼き込み版に戻る。失敗は警告のみ）
-2. `~/.claude` の初期化。`claude` 有効時は `~/.claude.json.host` → `~/.claude.json` のコピー、無効時は volume の所有者修正のみ（[claude-code.md](claude-code.md)）
+2. `~/.claude` の初期化。`claude` 有効時は `~/.claude.json.host` → `~/.claude.json` のコピー、無効時は volume の所有者修正のみ（[claude-code.md](claude-code.md)）。
+   `~/.codex` も同様に、`codex` 無効時だけ volume の所有者を直す（[codex.md](codex.md)。Codex はここでは更新しない）
 3. `$HOST_HOME` → `$HOME` の symlink 作成（ホストでインストールした plugin の絶対パス解決。[claude-code.md](claude-code.md)）
 4. `git config --system --add safe.directory <workspace>`（[git.md](git.md)）
 5. 検証用 keyring の構築と `gpg.program` の登録（`~/.gnupg-host` がある = `gpg` 有効時のみ。[gpg.md](gpg.md)）
@@ -192,12 +196,15 @@ dcc [command] [workspace] [options] [args...]
   compose ファイルを `-f` の末尾に足す（`up` / `build`）。
 - credential オプション `--creds` / `--all-creds` / `--no-creds` と `DCC_CREDS` は
   [credentials.md](credentials.md)。
+- 実行するエージェントは `--agent claude|codex` → `DCC_AGENT` → `claude` の順で決まる（`default` / `exec` で有効）。
+  `dcc` は起動時に `DCC_CLAUDE_ARGS` / `DCC_CODEX_ARGS` の引数を利用者の引数の前に足す。codex の既定は Codex 自身の sandbox を
+  外すもの（[codex.md](codex.md)）。
 
 | コマンド | 動作 |
 |---|---|
-| `dcc`（デフォルト） | `up` → gpg warm（`gpg` 有効時） → `claude` を exec |
-| `dcc up` | `initialize.sh <選択モジュール>` → drift の検査 → （必要なら volume `dcc-claude-home` の作成、base イメージの build）→ `docker compose -f base -f workspace -f <overlay>… [-f local/compose.yml] [-f $DCC_COMPOSE_FILES] up -d --no-recreate` → 未実行なら `postCreate.sh` |
-| `dcc exec [args]` | `up` → gpg warm（`capabilities/gpg/warm.sh`） → `docker compose exec -u agent -w /workspaces/<name> agent claude [args]` |
+| `dcc`（デフォルト） | `up` → gpg warm（`gpg` 有効時） → エージェントを exec |
+| `dcc up` | `initialize.sh <選択モジュール>` → drift の検査 → （必要なら volume `dcc-claude-home` / `dcc-codex-home` の作成、base イメージの build）→ `docker compose -f base -f workspace -f <overlay>… [-f local/compose.yml] [-f $DCC_COMPOSE_FILES] up -d --no-recreate` → 未実行なら `postCreate.sh` |
+| `dcc exec [args]` | `up` → gpg warm（`capabilities/gpg/warm.sh`） → `docker compose exec -u agent -w /workspaces/<name> agent <claude\|codex> [既定引数] [args]` |
 | `dcc creds` | モジュール一覧、既定値、今回の解決結果、実行中コンテナの選択を表示 |
 | `dcc stop [--all]` | `docker compose -p <project> stop`（`--all` で全ワークスペースの全プロジェクト） |
 | `dcc clear [--all] [--volumes]` | `docker compose -p <project> down [--volumes]`。`--volumes` で sidecar の named volume も削除、`--all` で全ワークスペース |

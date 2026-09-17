@@ -20,6 +20,9 @@ for module in "$@"; do
       warn_missing "${DCC_CLAUDE_DIR:-$HOME/.claude}" claude
       warn_missing "${DCC_CLAUDE_JSON:-$HOME/.claude.json}" claude "start Claude Code on the host once"
       ;;
+    codex)
+      warn_missing "${DCC_CODEX_DIR:-$HOME/.codex}" codex "start Codex on the host once"
+      ;;
     gpg)
       "$repo/capabilities/gpg/export-host-keys.sh"
       ;;

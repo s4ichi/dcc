@@ -30,6 +30,9 @@ local workspaceTarget = '/workspaces/${LOCAL_WORKSPACE_BASENAME:?run via dcc}';
 local claudeDir = '${DCC_CLAUDE_DIR:-${HOME}/.claude}';
 local claudeJson = '${DCC_CLAUDE_JSON:-${HOME}/.claude.json}';
 local claudeHomeVolume = '${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}';
+// codex モジュールも同じ形 (~/.codex)。config.toml は rename で書かれるので、必ずディレクトリ単位で渡す
+local codexDir = '${DCC_CODEX_DIR:-${HOME}/.codex}';
+local codexHomeVolume = '${DCC_CODEX_HOME_VOLUME:-dcc-codex-home}';
 local gitconfig = '${DCC_GITCONFIG:-${HOME}/.gitconfig}';
 
 // 本体イメージ。local/Dockerfile があるときは base (このリポジトリの Dockerfile) → final の 2 段で、
@@ -140,6 +143,18 @@ local credModules = {
     },
   },
 
+  // ホストの ~/.codex (設定・履歴・認証情報 auth.json) を rw で共有する。docs/codex.md
+  // 外すと base の volume (codex-home) が使われ、認証はコンテナ側で独立に持つ
+  codex: {
+    services: {
+      agent: {
+        volumes: [
+          bind(codexDir, remoteHome + '/.codex'),
+        ],
+      },
+    },
+  },
+
   // 署名は gpg-signer sidecar に委譲する。秘密鍵とパスフレーズは sidecar にだけ存在し、
   // 本体は gpg.program の wrapper 経由で署名 API を呼ぶ。docs/gpg.md
   gpg: {
@@ -231,6 +246,8 @@ local compose = {
         bind(gitconfig, remoteHome + '/.gitconfig', readonly=true),
         // claude モジュールが同じ target をホストの ~/.claude の bind で上書きする
         volume('claude-home', remoteHome + '/.claude'),
+        // 同じく codex モジュールがホストの ~/.codex の bind で上書きする
+        volume('codex-home', remoteHome + '/.codex'),
         // Claude Code の実体 (~/.local/share/claude) は volume にしない。イメージの焼き込み版が正で、
         // 自動更新はコンテナ層に残り recreate で焼き込み版に戻る (postCreate が最新化する)。
         // volume にすると ~/.local/bin/claude の symlink (volume 外) と食い違い、rebuild 後に壊れる
@@ -254,9 +271,10 @@ local compose = {
   },
 
   // プロジェクト名でプレフィックスされ、ワークスペースごとに独立する。
-  // claude-home だけは固定名の外部 volume (dcc が作る。down --volumes でも消えない)
+  // claude-home / codex-home だけは固定名の外部 volume (dcc が作る。down --volumes でも消えない)
   volumes: {
     'claude-home': { name: claudeHomeVolume, external: true },
+    'codex-home': { name: codexHomeVolume, external: true },
     'docker-certs': {},
     'docker-data': {},
   },

@@ -60,6 +60,16 @@ personal_image_enabled() {
 load_config() {
   load_env_file "${DCC_ENV_FILE:-$CONFIG_DIR/.env}"
   CREDS_DEFAULT="${DCC_CREDS:-}"   # DCC_CREDS は resolve_creds が結果で上書きするので、入力はここで取る
+  AGENT_DEFAULT="${DCC_AGENT:-claude}"
+
+  # エージェントの起動時に dcc が先頭に足す引数 (空白区切り。引用は解釈しない)。`-` 展開なので、
+  # 空文字を設定すれば既定を無効にできる。codex の既定は「コンテナが sandbox」という位置づけで
+  # Codex 自身の sandbox (bubblewrap。user namespace が要り、既定ではネットワークも切る) だけを外す。
+  # 承認ポリシーには触らない。--sandbox ではなく -c (config.toml の上書き) にしているのは、利用者が
+  # `dcc exec -- --sandbox …` を重ねても同じ引数が重複しないようにするため。docs/codex.md
+  local codex_args_default="-c sandbox_mode=danger-full-access -c check_for_update_on_startup=false"
+  CLAUDE_ARGS="${DCC_CLAUDE_ARGS-}"
+  CODEX_ARGS="${DCC_CODEX_ARGS-$codex_args_default}"
 
   CAPABILITIES_DIR="$CONFIG_DIR/capabilities"
   HOOKS_DIR="$CONFIG_DIR/lifecycle_hooks"
@@ -67,6 +77,7 @@ load_config() {
   GPG_EXPORT_DIR="${DCC_GPG_EXPORT_DIR:-$CAPABILITIES_DIR/gpg/gnupg-host}"
   BASE_IMAGE="${DCC_BASE_IMAGE:-dcc:base}"
   CLAUDE_HOME_VOLUME="${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}"
+  CODEX_HOME_VOLUME="${DCC_CODEX_HOME_VOLUME:-dcc-codex-home}"
   REMOTE_USER="${DCC_USER:-agent}"
   REMOTE_HOOKS_DIR=/usr/local/lib/dcc/hooks
   POSTCREATE_MARKER="/home/$REMOTE_USER/.dcc-postcreate-done"

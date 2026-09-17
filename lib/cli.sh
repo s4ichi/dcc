@@ -2,15 +2,25 @@
 # コマンドライン。引数の解釈 (parse_args)、ワークスペースと compose プロジェクト名 (resolve_workspace)、
 # 利用者向けの文面 (print_header / usage)。
 
-# dcc が解釈するのは credential オプションと --all だけ。それ以外の --xxx と `--` 以降は ARGS に残し、
-# コマンドへそのまま渡す (exec なら claude、build なら docker compose build)。先頭の非オプションが COMMAND
+# dcc が解釈するのは credential オプション、--agent、--all だけ。それ以外の --xxx と `--` 以降は ARGS に残し、
+# コマンドへそのまま渡す (exec ならエージェント、build なら docker compose build)。先頭の非オプションが COMMAND。
+# AGENT (実行するエージェント) もここで確定する: --agent > DCC_AGENT (load_config の AGENT_DEFAULT) > claude
 parse_args() {
+  local agent_request=""
   ALL=0
   CREDS_EXPLICIT=0              # --creds / --all-creds / --no-creds のどれかが指定された
   CREDS_REQUEST=""              # 指定されたモジュール (カンマ区切り。--creds の繰り返しは和集合)
   ARGS=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --agent)
+        [ "$#" -ge 2 ] || die "--agent requires an argument"
+        agent_request="$2"
+        shift
+        ;;
+      --agent=*)
+        agent_request="${1#--agent=}"
+        ;;
       --creds)
         [ "$#" -ge 2 ] || die "--creds requires an argument"
         CREDS_REQUEST="${CREDS_REQUEST:+$CREDS_REQUEST,}$2"
@@ -41,6 +51,11 @@ parse_args() {
   done
   COMMAND="${ARGS[0]:-default}"
   [ "${#ARGS[@]}" -eq 0 ] || ARGS=("${ARGS[@]:1}")
+  AGENT="${agent_request:-${AGENT_DEFAULT:-claude}}"
+  case "$AGENT" in
+    claude|codex) ;;
+    *) die "unknown agent '$AGENT' (available: claude codex)" ;;
+  esac
 }
 
 # stdin の sha256 の先頭 8 桁 (macOS: shasum、Linux: sha256sum)
@@ -88,6 +103,9 @@ print_header() {
   {
     printf '%sdcc  %s%s  %s%s%s\n' "$C_BOLD" "$LOCAL_WORKSPACE_BASENAME" "$C_RST" "$C_DIM" "$COMPOSE_PROJECT_NAME" "$C_RST"
     printf '     %s%-12s%s %s\n' "$C_DIM" workspace "$C_RST" "$WORKSPACE"
+    case "$COMMAND" in
+      default|exec) printf '     %s%-12s%s %s\n' "$C_DIM" agent "$C_RST" "$AGENT" ;;
+    esac
     printf '     %s%-12s%s %s%s%s\n' "$C_DIM" credentials "$C_RST" "${CREDS:-(none)}" \
       "${disabled:+  $C_DIM(off: $disabled)$C_RST}" "$([ "$CREDS_SOURCE" = container ] && printf '  %s(existing container)%s' "$C_DIM" "$C_RST")"
     printf '     %s%-12s%s %s\n' "$C_DIM" image "$C_RST" "$image"
@@ -102,7 +120,7 @@ Usage:
 
 Commands:
   up                 Start or create the containers (agent + docker sidecar)
-  exec [args]        Run claude inside the container (args are passed to claude)
+  exec [args]        Run the agent (claude or codex) inside the container (args are passed to it)
   stop [--all]       Stop the compose project (--all: every workspace)
   clear [--all] [--volumes]
                      Remove the compose project(s) (keep named volumes unless --volumes)
@@ -118,6 +136,10 @@ Commands:
 Default:
   dcc         Equivalent to: dcc up && dcc exec
 
+Agent option (default / exec):
+  --agent <name>     Agent to run: claude or codex (default: \$DCC_AGENT, or claude).
+                     Both live in the same container; the choice is per invocation
+
 Credential options (default / up / exec / recreate):
   --creds <a,b,...>  Enable credential modules (comma separated, repeatable)
   --all-creds        Enable every module
@@ -127,6 +149,11 @@ Credential options (default / up / exec / recreate):
 
 Environment (all optional; may also be put in \$DCC_CONFIG_DIR/.env):
   DCC_CREDS               Default for --creds (e.g. DCC_CREDS=gpg,ssh)
+  DCC_AGENT               Default for --agent (claude or codex)
+  DCC_CLAUDE_ARGS         Arguments dcc puts before yours when it runs claude (default: none)
+  DCC_CODEX_ARGS          Same for codex. Default turns off Codex's own sandbox, as the container
+                          is the sandbox: -c sandbox_mode=danger-full-access
+                          -c check_for_update_on_startup=false. Set to empty to pass nothing
   DCC_VERBOSE             Set to 1 to stream compose / hook output (otherwise shown only on failure)
   DCC_CONFIG_DIR          Config directory (default: ~/.config/dcc)
   DCC_ENV_FILE            Env file to load (default: \$DCC_CONFIG_DIR/.env)

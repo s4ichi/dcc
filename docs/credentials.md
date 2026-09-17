@@ -12,9 +12,13 @@
 | `ssh` | `./capabilities/ssh/data` → `~/.ssh`、`./capabilities/ssh/{config,known_hosts}` → `/etc/ssh` | ro | なし | [ssh.md](ssh.md) |
 | `gh` | `./capabilities/gh/data` → `~/.config/gh` | rw | なし | [github.md](github.md) |
 | `claude` | ホストの `~/.claude` → `~/.claude`、`~/.claude.json` → `~/.claude.json.host` | rw / ro | 外すと `~/.claude` は全ワークスペース共有の空の volume `dcc-claude-home` になる（`dcc up` が作る） | [claude-code.md](claude-code.md) |
+| `codex` | ホストの `~/.codex` → `~/.codex`（`auth.json` = ホストの Codex の token を含む） | rw | 外すと `~/.codex` は全ワークスペース共有の空の volume `dcc-codex-home` になる（`dcc up` が作る） | [codex.md](codex.md) |
+
+`claude` / `codex` モジュールは「そのエージェントを使えるようにする」ものではない。エージェントは両方とも本体イメージに入っており、
+どちらを起動するかは `--agent` で選ぶ（[architecture.md](architecture.md)）。モジュールが決めるのは、ホストの設定と認証を共有するかどうかだけ。
 
 常時マウント（モジュール化していないもの）: ワークスペース、`~/.gitconfig`（[git.md](git.md)）、
-lifecycle hook、Docker TLS 証明書、`claude` モジュール無効時の volume。
+lifecycle hook、Docker TLS 証明書、`claude` / `codex` モジュール無効時の volume。
 
 ## 指定方法（`dcc`）
 

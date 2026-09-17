@@ -31,6 +31,17 @@ else
   echo "~/.claude: on volume dcc-claude-home (claude module off)"
 fi
 
+# ~/.codex も同じ (有効: ホストの rw bind、無効: 全ワークスペース共有の空の volume)。~/.codex には
+# ~/.claude.json に当たる単独ファイルが無いのでコピーは要らない。Codex の実体は /opt/codex (イメージ) にあり、
+# claude と違ってここでは更新しない (更新はイメージの rebuild)
+if has_cred codex; then
+  echo "~/.codex: shared with host"
+else
+  sudo chown "$(id -u):$(id -g)" "${HOME}/.codex"
+  chmod 700 "${HOME}/.codex"
+  echo "~/.codex: on volume dcc-codex-home (codex module off)"
+fi
+
 # ホストでインストールした plugin のメタデータはホストの絶対パスを含むため、
 # ホストのホーム → コンテナのホームへ symlink して解決させる
 if [ -n "${HOST_HOME:-}" ] && [ "${HOST_HOME}" != "${HOME}" ] && [ ! -e "${HOST_HOME}" ]; then

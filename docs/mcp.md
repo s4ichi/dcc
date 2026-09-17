@@ -1,4 +1,6 @@
-# MCP サーバー
+# MCP サーバー（Claude Code）
+
+このページは Claude Code の MCP の話。Codex CLI の MCP（`config.toml` の `[mcp_servers]`、`codex mcp login --no-browser`）は [codex.md](codex.md)。
 
 モジュール選択に関係なく使えるが、`~/.claude` / `~/.claude.json`（[claude-code.md](claude-code.md)）とワークスペースの上に成り立つので、`claude` モジュールの有無で「ホストの設定が見えるか」「token がどこに残るか」が変わる。以下で「共有時」は `claude` モジュール有効（ホストの `~/.claude` を rw 共有）、「非共有時」は無効（全ワークスペース共有の volume `dcc-claude-home`）を指す。
 

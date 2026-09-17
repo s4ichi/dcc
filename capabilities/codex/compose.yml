@@ -1,0 +1,7 @@
+services:
+  agent:
+    volumes:
+      - source: "${DCC_CODEX_DIR:-${HOME}/.codex}"
+        target: "/home/${DCC_USER:-agent}/.codex"
+        type: "bind"
+

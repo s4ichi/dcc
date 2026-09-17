@@ -53,7 +53,7 @@ main() {
     default|exec)
       up_container
       warm_gpg
-      exec_claude "$@"
+      exec_agent "$@"
       ;;
     up)
       up_container

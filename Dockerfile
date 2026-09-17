@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# 本体イメージ (compose の agent サービス)。Claude Code と開発ツールを入れた非特権のコンテナで、
+# 本体イメージ (compose の agent サービス)。Claude Code / Codex CLI と開発ツールを入れた非特権のコンテナで、
 # dockerd は含まない (Docker は rootless の sidecar が提供する。docs/docker.md)。
 # devcontainer features は使わず、すべてここに焼き込む。
 #
@@ -217,6 +217,32 @@ RUN set -eux; \
       | tar -xz --strip-components=1 -C /usr/local/bin; \
     chmod 0755 /usr/local/bin/uv /usr/local/bin/uvx; \
     uv --version
+
+# Layer 11: Codex CLI (standalone package, latest release; Node は不要)
+#
+# codex-package-* は bin/codex に加えて codex-resources/bwrap と codex-path/rg を同梱する (単体バイナリの
+# tarball には無い)。公式の install.sh は shell profile を書き換え、本体を CODEX_HOME (~/.codex) 配下に置くので
+# 使わない: ~/.codex は volume / ホストの bind になるため、そこに実体を置くと claude の実体を volume に
+# しないのと同じ理由で食い違う。/opt/codex に展開したこの版が正で、更新はイメージの rebuild (`dcc build --no-cache`)。
+# 同じリリースの codex-package_SHA256SUMS で検証する (--ignore-missing でも、1 つも検証できなければ失敗する)。
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    case "${arch}" in \
+      x86_64)  codextarget=x86_64-unknown-linux-musl ;; \
+      aarch64) codextarget=aarch64-unknown-linux-musl ;; \
+      *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
+    esac; \
+    base="https://github.com/openai/codex/releases/latest/download"; \
+    mkdir -p /tmp/codex /opt/codex; \
+    cd /tmp/codex; \
+    curl -fsSL -O "${base}/codex-package-${codextarget}.tar.gz"; \
+    curl -fsSL -O "${base}/codex-package_SHA256SUMS"; \
+    sha256sum -c --ignore-missing codex-package_SHA256SUMS; \
+    tar -xzf "codex-package-${codextarget}.tar.gz" -C /opt/codex; \
+    ln -s /opt/codex/bin/codex /usr/local/bin/codex; \
+    cd /; \
+    rm -rf /tmp/codex; \
+    codex --version
 
 USER ${USERNAME}
 WORKDIR /workspaces

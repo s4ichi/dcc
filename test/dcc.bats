@@ -7,7 +7,7 @@ setup() {
   export DCC_CONFIG_DIR="$REPO"
   export DCC_ENV_FILE=/dev/null
   export NO_COLOR=1
-  unset DCC_CREDS DCC_WORKSPACE DCC_VERBOSE
+  unset DCC_CREDS DCC_WORKSPACE DCC_VERBOSE DCC_AGENT DCC_CLAUDE_ARGS DCC_CODEX_ARGS
   # shellcheck disable=SC1091
   source "$REPO/dcc"
   load_config
@@ -34,7 +34,7 @@ setup() {
   [ "$CREDS_EXPLICIT" -eq 1 ]
   [ -z "$CREDS_REQUEST" ]
   parse_args --all-creds
-  [ "$CREDS_REQUEST" = "aws,claude,gh,gpg,ssh" ]
+  [ "$CREDS_REQUEST" = "aws,claude,codex,gh,gpg,ssh" ]
 }
 
 @test "parse_args: --creds without value dies" {
@@ -53,6 +53,85 @@ setup() {
 @test "parse_args: unknown --flags are passed through as ARGS" {
   parse_args exec --resume
   [ "${ARGS[*]}" = "--resume" ]
+}
+
+# --- エージェント -----------------------------------------------------------------
+
+@test "parse_args: agent defaults to claude" {
+  parse_args
+  [ "$AGENT" = claude ]
+}
+
+@test "parse_args: --agent in both syntaxes, and it is not left in ARGS" {
+  parse_args --agent codex exec --resume
+  [ "$AGENT" = codex ]
+  [ "$COMMAND" = exec ]
+  [ "${ARGS[*]}" = "--resume" ]
+  parse_args exec --agent=codex
+  [ "$AGENT" = codex ]
+  [ "${#ARGS[@]}" -eq 0 ]
+}
+
+@test "parse_args: DCC_AGENT is the default, --agent wins over it" {
+  DCC_AGENT=codex load_config
+  parse_args
+  [ "$AGENT" = codex ]
+  parse_args --agent claude
+  [ "$AGENT" = claude ]
+}
+
+@test "parse_args: unknown agent and missing value die" {
+  run parse_args --agent gemini
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"unknown agent 'gemini'"* ]]
+  run parse_args --agent
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--agent requires an argument"* ]]
+}
+
+@test "parse_args: --agent after -- belongs to the agent, not to dcc" {
+  parse_args exec -- --agent codex
+  [ "$AGENT" = claude ]
+  [ "${ARGS[*]}" = "--agent codex" ]
+}
+
+@test "agent_args: codex turns off its own sandbox by default, claude gets nothing" {
+  AGENT=claude
+  [ -z "$(agent_args)" ]
+  AGENT=codex
+  [ "$(agent_args)" = "-c sandbox_mode=danger-full-access -c check_for_update_on_startup=false" ]
+}
+
+@test "agent_args: DCC_*_ARGS replace the default, empty disables it" {
+  DCC_CODEX_ARGS="" DCC_CLAUDE_ARGS="--model opus" load_config
+  AGENT=codex
+  [ -z "$(agent_args)" ]
+  AGENT=claude
+  [ "$(agent_args)" = "--model opus" ]
+}
+
+@test "exec_agent: preset args come first, user args are passed one by one" {
+  compose() { printf '%s\n' "$@"; }
+  done_step() { :; }
+  REMOTE_WORKSPACE=/workspaces/x AGENT=codex
+  run exec_agent resume "a b"
+  [ "$status" -eq 0 ]
+  [ "${lines[5]}" = agent ]
+  [ "${lines[6]}" = codex ]
+  [ "${lines[7]}" = "-c" ]
+  [ "${lines[8]}" = "sandbox_mode=danger-full-access" ]
+  [ "${lines[11]}" = resume ]
+  [ "${lines[12]}" = "a b" ]
+}
+
+@test "exec_agent: no preset args leaves no empty argument behind" {
+  compose() { printf '[%s]\n' "$@"; }
+  done_step() { :; }
+  REMOTE_WORKSPACE=/workspaces/x AGENT=claude
+  run exec_agent --resume
+  [ "${lines[6]}" = "[claude]" ]
+  [ "${lines[7]}" = "[--resume]" ]
+  [ "${#lines[@]}" -eq 8 ]
 }
 
 # --- ワークスペース ---------------------------------------------------------------
@@ -90,7 +169,7 @@ setup() {
   [ "$CREDS" = "aws ssh" ]
   [ "$DCC_CREDS" = "aws,ssh" ]
   [ "$CREDS_SOURCE" = flags ]
-  [ "$ALL_CREDS" = "aws claude gh gpg ssh" ]
+  [ "$ALL_CREDS" = "aws claude codex gh gpg ssh" ]
 }
 
 @test "resolve_creds: flags win over DCC_CREDS, --no-creds gives none" {

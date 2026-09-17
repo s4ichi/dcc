@@ -6,7 +6,7 @@
 
 ## 前提
 
-本体コンテナは Claude Code が任意のコードを実行しうる場所であり、**侵害されうる前提**で境界を引く。
+本体コンテナはエージェント（Claude Code / Codex CLI）が任意のコードを実行しうる場所であり、**侵害されうる前提**で境界を引く。
 読んだ Web ページやドキュメントに仕込まれた指示で、認証情報の持ち出しを試みることがある。
 したがって「何を許可するか」ではなく「本体からは何に到達できないか」を決める。
 
@@ -14,18 +14,18 @@
 
 | 軸 | 問い | この設計での扱い |
 |---|---|---|
-| **できること** | どの操作を許すか | 主にホストの Claude Code 設定（`settings.json` の permissions / hooks）の領域で、このリポジトリでは扱わない。代行実行（gpg / aws）では sidecar 側が受け付ける操作を絞ることで実現する |
+| **できること** | どの操作を許すか | 主にエージェント側の設定（Claude Code の `settings.json` の permissions / hooks、Codex の承認ポリシー）の領域で、このリポジトリでは扱わない。代行実行（gpg / aws）では sidecar 側が受け付ける操作を絞ることで実現する |
 | **届く範囲** | どのファイル・リソースに到達できるか | 本体には選んだものだけを、できるだけ ro で bind する。特権（Docker sidecar）と秘密情報は同じコンテナに置かない。inner container にはワークスペースしか見せない |
 | **鍵の渡し方** | 認証情報をどう渡すか | 可能なものは代行実行（本体は鍵を受け取らない）。そうでないものはコンテナ専用の鍵を作って権限を絞り、平文で渡す。長期鍵はコンテナに持ち込まない |
 
 ## 設計原則
 
-1. **秘密情報は選んだものだけ渡す。** `aws` / `gpg` / `ssh` / `gh` / `claude` はモジュール化されており、`dcc --creds` で明示しない限りマウントされない（[credentials.md](credentials.md)）
+1. **秘密情報は選んだものだけ渡す。** `aws` / `gpg` / `ssh` / `gh` / `claude` / `codex` はモジュール化されており、`dcc --creds` で明示しない限りマウントされない（[credentials.md](credentials.md)）
 2. **特権と秘密情報を同居させない。** `privileged: true` を持つ Docker sidecar には秘密情報を一切渡さない。渡し先は本体か、`aws-credentials` / `gpg-signer` のような非特権のモジュール sidecar だけ。本体は非特権（ユーザー `agent` uid 1000、ただし sudo NOPASSWD）
 3. **鍵を取りに行くのは本体ではなく sidecar。** 署名（gpg）と AWS は代行実行で、本体が受け取るのは署名結果と有効期限付きの一時 credential だけ
-4. **長期鍵をコンテナに持ち込まない。** ホストの `~/.ssh`、`~/.aws/credentials`、`~/.gnupg` の秘密鍵、Keychain の token は渡さない。渡すのはコンテナ専用に作った鍵 / token（`ssh` / `gh`）で、権限を絞る
-5. **read-only が原則。** 書き込みが必要なもの（`~/.claude`、`~/.config/gh`、ワークスペース）だけ rw にする
-6. **single-file bind mount を避ける。** コンテナ内で atomic write（tmp → rename）されるファイルを single-file で bind すると `rename` が EXDEV で失敗し壊れる。該当するものは `.host` として ro で渡し、postCreate でコピーする
+4. **長期鍵をコンテナに持ち込まない。** ホストの `~/.ssh`、`~/.aws/credentials`、`~/.gnupg` の秘密鍵、Keychain の token は渡さない。渡すのはコンテナ専用に作った鍵 / token（`ssh` / `gh`）で、権限を絞る。**例外は `codex` モジュール**で、有効にするとホストの `~/.codex/auth.json`（Codex の token。平文のファイル）がそのままコンテナに渡る。既定では渡さず、コンテナ内で別にログインする（[codex.md](codex.md)）
+5. **read-only が原則。** 書き込みが必要なもの（`~/.claude`、`~/.codex`、`~/.config/gh`、ワークスペース）だけ rw にする
+6. **single-file bind mount を避ける。** コンテナ内で atomic write（tmp → rename）されるファイルを single-file で bind すると `rename` が EXDEV で失敗し壊れる。該当するものは `.host` として ro で渡し、postCreate でコピーする（`~/.claude.json`）か、親ディレクトリごと渡す（`~/.codex/config.toml`）
 7. **ホストの Docker を渡さない。** `/var/run/docker.sock` はコンテナに渡さない。Docker は rootless の sidecar が提供する（[docker.md](docker.md)）
 8. **macOS Keychain は渡さない。** Claude Code 本体と MCP サーバーの認証はコンテナ内で行い、結果は `~/.claude/.credentials.json` に残す（[mcp.md](mcp.md)）
 
@@ -41,6 +41,7 @@
 | `gh` | ホストの token（Keychain） | 平文（コンテナ専用 token を rw bind） | 専用 token が漏れる。被害は scope の範囲 | [github.md](github.md) |
 | git | gitconfig | 渡さない（ro） | 設定が読める。書き換えは不可 | [git.md](git.md) |
 | `claude` | 設定、履歴、token | コンテナ内で認証（平文で `~/.claude` に残る） | 有効時: **ホストの設定の改変、token と履歴の持ち出し**。最大の穴。無効時: volume 内の token と履歴のみ | [claude-code.md](claude-code.md) |
+| `codex` | 設定、履歴、token（`auth.json`） | 有効時: **ホストの token を平文のまま共有**。無効時: コンテナ内で認証（volume に残る） | 有効時: **ホストの token の持ち出し、ホストで実行されるコマンドの設定（`notify` / hooks / MCP）の改変**。`claude` より重い。無効時: volume 内の token と履歴のみ | [codex.md](codex.md) |
 | MCP | サーバー設定、token | コンテナ内で認証（Keychain は渡さない） | コンテナで取った token が漏れる | [mcp.md](mcp.md) |
 | Docker | ホストの Docker、ホストのファイル | 渡さない（sidecar が提供） | sidecar 内の uid 1000 の権限。ワークスペース以外は見えない | [docker.md](docker.md) |
 
@@ -56,6 +57,8 @@
 | 常時 | volume `dcc-claude-home`（`DCC_CLAUDE_HOME_VOLUME`、external、全ワークスペース共有、空で始まる） | `~/.claude` | rw | volume | [claude-code.md](claude-code.md)。`claude` モジュールが同じ target を bind で上書きする |
 | `claude` | `~/.claude`（`DCC_CLAUDE_DIR`） | `~/.claude` | **rw** | bind | [claude-code.md](claude-code.md) |
 | `claude` | `~/.claude.json`（`DCC_CLAUDE_JSON`） | `~/.claude.json.host` | ro | bind | [claude-code.md](claude-code.md)。postCreate でローカルへコピー |
+| 常時 | volume `dcc-codex-home`（`DCC_CODEX_HOME_VOLUME`、external、全ワークスペース共有、空で始まる） | `~/.codex` | rw | volume | [codex.md](codex.md)。`codex` モジュールが同じ target を bind で上書きする |
+| `codex` | `~/.codex`（`DCC_CODEX_DIR`） | `~/.codex` | **rw** | bind | [codex.md](codex.md)。`auth.json`（token）を含む。ディレクトリ単位で渡す |
 | 常時 | `<repo>/lifecycle_hooks/` | `/usr/local/lib/dcc/hooks` | ro | bind | [architecture.md](architecture.md) |
 | 常時 | volume `docker-certs` | `/certs` | ro | volume | [docker.md](docker.md)。sidecar が生成した TLS 証明書 |
 | `aws` | なし（`aws-credentials` sidecar が `127.0.0.1:8080` で一時 credential を発行） | 環境変数 `AWS_CONTAINER_CREDENTIALS_FULL_URI` のみ | — | — | [aws.md](aws.md) |
@@ -93,6 +96,7 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
 | ワークスペース | **される**（同一 bind） |
 | `~/.claude`（セッション履歴、プラグイン、設定、コンテナで取得した OAuth token） | `claude` 有効時は**される**（token はホストの Claude Code からは参照されない）。無効時はされない（volume に閉じる） |
 | `~/.claude.json` | されない（コンテナローカルのコピー） |
+| `~/.codex`（設定、認証、セッション履歴） | `codex` 有効時は**される**（設定の変更も token の更新もホストの Codex にそのまま効く）。無効時はされない（volume に閉じる） |
 | `~/.ssh`、`~/.config/gh` | されない（コンテナ専用。ホストのものとは別物） |
 | `~/.gnupg`、`~/.gitconfig*`、`~/.aws` | されない（ro、または本体に無い） |
 | git の `safe.directory` | されない（コンテナ内の system gitconfig） |
@@ -126,4 +130,5 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
   専用の鍵 / token（`ssh` / `gh`）は読み出せる。被害の上限は各ページの「侵害時に漏れるもの」のとおり
 - **本体コンテナ内の権限。** コンテナユーザー（`agent`）は sudo NOPASSWD で、本体コンテナ内では root 相当。境界はコンテナの外枠
   （非特権、ホストの Docker socket なし、選んだマウントだけ）で引いている
-- **Claude Code の権限設定。** permissions / hooks / sandbox はホスト側の設定の領域で、このリポジトリでは扱わない
+- **エージェントの権限設定。** Claude Code の permissions / hooks / sandbox、Codex の承認ポリシーは利用者の設定の領域で、このリポジトリでは扱わない。
+  唯一の例外として、**Codex 自身の sandbox は `dcc` が既定で外す**（コンテナ内では動かないことが多く、動いても sidecar への通信を切るため。[codex.md](codex.md)）

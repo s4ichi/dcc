@@ -38,6 +38,9 @@ services:
       - source: "claude-home"
         target: "/home/${DCC_USER:-agent}/.claude"
         type: "volume"
+      - source: "codex-home"
+        target: "/home/${DCC_USER:-agent}/.codex"
+        type: "volume"
       - read_only: true
         source: "docker-certs"
         target: "/certs"
@@ -64,6 +67,9 @@ volumes:
   claude-home:
     external: true
     name: "${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}"
+  codex-home:
+    external: true
+    name: "${DCC_CODEX_HOME_VOLUME:-dcc-codex-home}"
   docker-certs: {}
   docker-data: {}
 

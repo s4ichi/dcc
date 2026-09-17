@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-このリポジトリは Claude Code をホストから隔離して動かすためのコンテナ設定（docker compose）と、その薄いラッパー CLI `dcc` を管理する。ホストでは `~/.config/dcc`（`DCC_CONFIG_DIR`）に clone して使う。`dcc` は選択した compose ファイルを `-f` で並べて `docker compose` を呼ぶだけで、ファイルの生成・書き換えは行わず、devcontainer CLI にも依存しない。同じ compose ファイルは devcontainer CLI / VS Code からも参照できる。
+このリポジトリはコーディングエージェント（Claude Code / Codex CLI）をホストから隔離して動かすためのコンテナ設定（docker compose）と、その薄いラッパー CLI `dcc` を管理する。ホストでは `~/.config/dcc`（`DCC_CONFIG_DIR`）に clone して使う。`dcc` は選択した compose ファイルを `-f` で並べて `docker compose` を呼ぶだけで、ファイルの生成・書き換えは行わず、devcontainer CLI にも依存しない。同じ compose ファイルは devcontainer CLI / VS Code からも参照できる。
 
-compose プロジェクトはワークスペースごとに 1 つで、`agent`（本体。Claude Code が動く非特権コンテナ）と `docker`（rootless dind の sidecar。`privileged` はここだけで、秘密情報は一切マウントしない）からなる。ホストの秘密情報は credential モジュール（`aws` / `claude` / `gpg` / `ssh` / `gh`）として `dcc --creds gpg,ssh` のように明示したときだけ渡る。`gpg` と `aws` は非特権のモジュール sidecar が代行し、本体は鍵を受け取らない。
+compose プロジェクトはワークスペースごとに 1 つで、`agent`（本体。エージェントが動く非特権コンテナ。`claude` と `codex` の両方が入っており、`dcc --agent` で起動のたびに選ぶ）と `docker`（rootless dind の sidecar。`privileged` はここだけで、秘密情報は一切マウントしない）からなる。ホストの秘密情報は credential モジュール（`aws` / `claude` / `codex` / `gpg` / `ssh` / `gh`）として `dcc --creds gpg,ssh` のように明示したときだけ渡る。`gpg` と `aws` は非特権のモジュール sidecar が代行し、本体は鍵を受け取らない。
 
 設計の前提は「本体コンテナは侵害されうる」。変更するときは、本体から新たに何へ到達できるようになるかを必ず考える（`docs/boundaries.md`）。
 
@@ -19,7 +19,7 @@ compose プロジェクトはワークスペースごとに 1 つで、`agent`�
 | 境界の総論、設計原則、マウント一覧 | `docs/boundaries.md` |
 | モジュールの選択・drift・追加方法 | `docs/credentials.md` |
 | `DCC_*` 環境変数、`local/` | `docs/customization.md`、`.env.example` |
-| 境界ごとの設計理由と既知の穴 | `docs/{gpg,aws,ssh,github,git,claude-code,mcp,docker}.md` |
+| 境界ごとの設計理由と既知の穴 | `docs/{gpg,aws,ssh,github,git,claude-code,codex,mcp,docker}.md` |
 | devcontainer CLI / VS Code からの利用 | `docs/devcontainer.md` |
 
 ## Commands
@@ -65,6 +65,7 @@ make clean      # 生成物を削除
 | `lifecycle_hooks/initialize.sh` | ホスト側の前処理（モジュールごとの export / 事前チェック）。`dcc up` と devcontainer の `initializeCommand` から呼ぶ |
 | `lifecycle_hooks/postCreate.sh` | コンテナ作成後にコンテナ内で一度だけ実行するフック。`dcc up` と devcontainer の `postCreateCommand` から呼ぶ |
 | `test/dcc.bats` | `dcc` の関数テスト |
+| `AGENTS.md` | Codex など他のエージェント向けの入口。規約の本体はこのファイル（`CLAUDE.md`）で、`AGENTS.md` はここへ案内するだけ。規約を変えるときはこちらを直す |
 | `.env.example` | `DCC_*` の一覧と既定値（これが正） |
 | `.env`、`local/`、`capabilities/{ssh,gh}/data/`、`capabilities/gpg/gnupg-host/` | gitignore 済み。利用者の設定と秘密情報。**読まない・コミットしない** |
 
@@ -79,8 +80,9 @@ make clean      # 生成物を削除
 - ホスト側の前処理の結果は compose の環境変数ではなく**ファイル**で渡す。devcontainer の `initializeCommand` からは compose に環境変数を渡せない（`docs/credentials.md`）
 - モジュール sidecar は `network_mode: service:docker` で netns を共有し、`127.0.0.1` だけで listen する。AWS SDK が loopback 以外の `http://` endpoint を拒否するためで、結果として endpoint は netns の外から届かない（`docs/aws.md`）
 - 長期鍵を本体に持ち込まない。`~/.aws`、`~/.gnupg`、ホストの `~/.ssh`、Keychain は本体にマウントしない（`docs/boundaries.md`）
-- コンテナ内で atomic write されるファイル（`~/.claude.json`）を single-file bind しない。ro で `.host` として渡し postCreate でコピーする（`docs/claude-code.md`）
-- Claude Code の実体（`~/.local/share/claude`）を volume にしない。イメージの焼き込み版が正（`docs/claude-code.md`）
+- コンテナ内で atomic write されるファイル（`~/.claude.json`）を single-file bind しない。ro で `.host` として渡し postCreate でコピーする（`docs/claude-code.md`）。`~/.codex` も `config.toml` が rename で書かれるので、必ずディレクトリ単位で渡す（`docs/codex.md`）
+- エージェントの選択（`--agent`）はコンテナの属性にしない。両エージェントは同じコンテナに同居し、ラベルや compose の補間に `AGENT` を持ち込まない（持ち込むと切り替えに `dcc recreate` が要るようになる）
+- Claude Code の実体（`~/.local/share/claude`）を volume にしない。イメージの焼き込み版が正（`docs/claude-code.md`）。Codex の実体も `/opt/codex`（イメージ）に置き、`~/.codex` の下には置かない
 - compose は multi-file の `volumes` を target で追記マージし、同一 target は後勝ち。意図的な上書き（`claude` モジュールの `~/.claude`）以外で target を重複させない
 
 ## 運用上の注意

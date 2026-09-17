@@ -2,7 +2,7 @@
 
 `dcc` はこのリポジトリの compose ファイルを `docker compose` で直接使う薄いラッパーで、
 devcontainer CLI には依存しない。同じ compose ファイルは devcontainer CLI / VS Code Dev Containers
-からも参照でき、credential モジュール（`aws` / `claude` / `gpg` / `ssh` / `gh`）も同じ挙動で使える。
+からも参照でき、credential モジュール（`aws` / `claude` / `codex` / `gpg` / `ssh` / `gh`）も同じ挙動で使える。
 このページはその使い方。
 
 ## 前提: devcontainer CLI が compose に渡さないもの
@@ -96,7 +96,8 @@ services:
 |---|---|
 | `ssh` / `gh` | `dockerComposeFile` に overlay を足すだけ |
 | `claude` | overlay を足すとホストの `~/.claude` を共有する。足さない場合は base が external volume `dcc-claude-home` を要求するので、先に `docker volume create dcc-claude-home` を一度実行する（`dcc` は自動で作る） |
-| `aws` | 同上。`initializeCommand` に `aws` を書くと `~/.aws/config` / `~/.aws/login/cache` の存在を事前チェックする。`AWS_PROFILE` / `AWS_REGION` はシェルの環境変数から compose が拾う |
+| `codex` | `claude` と同じ。overlay を足すとホストの `~/.codex` を共有する。足さない場合は `docker volume create dcc-codex-home` を一度実行する。**base が両方の volume を参照するので、Codex を使わなくても `dcc-codex-home` は必要**（Claude Code を使わない場合の `dcc-claude-home` も同様）。devcontainer から `codex` を起動するときは `dcc` の既定引数が付かないので、`codex -c sandbox_mode=danger-full-access` のように自分で渡すか `~/.codex/config.toml` に書く（[codex.md](codex.md)） |
+| `aws` | `dockerComposeFile` に overlay を足すだけ。`initializeCommand` に `aws` を書くと `~/.aws/config` / `~/.aws/login/cache` の存在を事前チェックする。`AWS_PROFILE` / `AWS_REGION` はシェルの環境変数から compose が拾う |
 | `gpg` | `initializeCommand` に `gpg` を書く（**必須**。ホストの公開鍵 / 署名鍵情報を `capabilities/gpg/gnupg-host` へ export する。無いと sidecar は署名鍵を持たない）。up 後にターミナルから `<repo>/capabilities/gpg/warm.sh` を一度実行してパスフレーズを sidecar にキャッシュする（下記） |
 
 ### `gpg` のパスフレーズ warm
