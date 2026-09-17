@@ -1,13 +1,13 @@
 services:
-  claude:
+  agent:
     build:
       args:
-        BASE_IMAGE: "${DCC_BASE_IMAGE:-claude-devcontainer:base}"
+        BASE_IMAGE: "${DCC_BASE_IMAGE:-dcc:base}"
         GO_VERSION: "${DCC_GO_VERSION:-1.26.3}"
-        USERNAME: "${DCC_USER:-claude}"
+        USERNAME: "${DCC_USER:-agent}"
         USER_GID: "${DCC_GID:-${DCC_UID:-1000}}"
         USER_UID: "${DCC_UID:-1000}"
-      context: "${DCC_BUILD_CONTEXT:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}}"
+      context: "${DCC_BUILD_CONTEXT:-${DCC_CONFIG_DIR:-${HOME}/.config/dcc}}"
       dockerfile: "${DCC_DOCKERFILE:-Dockerfile}"
     command:
       - "sleep"
@@ -25,7 +25,7 @@ services:
       DOCKER_TLS_VERIFY: "1"
       HOST_HOME: "${HOME}"
       TZ: "${DCC_TZ:-${TZ:-UTC}}"
-    image: "${DCC_IMAGE:-claude-devcontainer:local}"
+    image: "${DCC_IMAGE:-dcc:local}"
     init: true
     labels:
       dcc.credentials: "${DCC_CREDS-}"
@@ -33,18 +33,18 @@ services:
     volumes:
       - read_only: true
         source: "${DCC_GITCONFIG:-${HOME}/.gitconfig}"
-        target: "/home/${DCC_USER:-claude}/.gitconfig"
+        target: "/home/${DCC_USER:-agent}/.gitconfig"
         type: "bind"
       - source: "claude-home"
-        target: "/home/${DCC_USER:-claude}/.claude"
+        target: "/home/${DCC_USER:-agent}/.claude"
         type: "volume"
       - read_only: true
         source: "docker-certs"
         target: "/certs"
         type: "volume"
       - read_only: true
-        source: "${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/lifecycle_hooks"
-        target: "/usr/local/lib/claude-devcontainer/hooks"
+        source: "${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/lifecycle_hooks"
+        target: "/usr/local/lib/dcc/hooks"
         type: "bind"
   docker:
     environment:

@@ -80,7 +80,7 @@ dcc recreate --all-creds            # 全部渡して作り直し
 ```
 template.jsonnet ──make generate──►  docker-compose.yml               (base: 常時マウント + sidecar)
                                           docker-compose.workspace.yml     (dcc 用ワークスペース bind)
-                                          capabilities/<name>/compose.yml  (services.claude への追記 + モジュール専用 sidecar)
+                                          capabilities/<name>/compose.yml  (services.agent への追記 + モジュール専用 sidecar)
 
 dcc up --creds gpg,ssh
   ├─ resolve_creds     : フラグ > 既存コンテナのラベル > DCC_CREDS の順に選び、名前検証・正規化
@@ -89,7 +89,7 @@ dcc up --creds gpg,ssh
   ├─ check_drift       : 既存コンテナと比較して警告 (モジュールの選択 / AWS_PROFILE / gpg の署名鍵。
   │                      選択はフラグ指定時のみ差が出る)
   ├─ docker compose -p <project> -f base -f workspace -f capabilities/gpg/compose.yml -f capabilities/ssh/compose.yml up -d --no-recreate
-  └─ docker compose exec claude postCreate.sh   (未実行のときだけ)
+  └─ docker compose exec agent postCreate.sh    (未実行のときだけ)
 ```
 
 設計上のポイント:
@@ -97,7 +97,7 @@ dcc up --creds gpg,ssh
 - **overlay は静的な生成物で commit する。** ホストに jsonnet は不要で、何がマウントされるかを
   ファイルとしてレビューできる。
 - overlay 内のリポジトリ内パスは `${DCC_CONFIG_DIR}` 基準の**絶対パス**で書く（`dcc` が解決済みの値を
-  export する。既定値 `~/.config/devcontainer/claude` は compose 側に持つ）。compose の project
+  export する。既定値 `~/.config/dcc` は compose 側に持つ）。compose の project
   directory（最初の `-f` の親）に依存しないので、devcontainer CLI から別の並びで `-f` に渡しても同じ
   場所を指す（[devcontainer.md](devcontainer.md)）。
 - compose は multi-file の `volumes` を target キーで追記マージする。同じ target を 2 つの overlay に
@@ -105,13 +105,13 @@ dcc up --creds gpg,ssh
 - compose の環境変数補間に依存する値はモジュール側に置かない。ホスト側の前処理の結果はファイル
   （`capabilities/gpg/gnupg-host/*`）で渡し、sidecar と本体はそれを読む。devcontainer 経由では
   `initializeCommand` から compose に環境変数を渡せないため。
-- `dcc build` は base と**全 overlay** を `-f` に渡し、`build` を持つ service（`claude` と
+- `dcc build` は base と**全 overlay** を `-f` に渡し、`build` を持つ service（`agent` と
   モジュール専用 sidecar）をすべてビルドする。`stop` / `clear` は `-p` のラベル操作なので選択に依存しない。
 
 ## モジュールの追加
 
 1. `template.jsonnet` の `credModules` にエントリを足す（base にマージされる compose 断片。
-   通常は `services.claude.volumes` の追記だけだが、`aws` のようにモジュール専用の service を
+   通常は `services.agent.volumes` の追記だけだが、`aws` のようにモジュール専用の service を
    追加してもよい）。
 2. `make generate` → `capabilities/<name>/compose.yml` が生成される。`dcc` はこのファイル名一覧から
    モジュール名を得るので、`dcc` 側の変更は不要。

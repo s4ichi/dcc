@@ -39,7 +39,7 @@
 ## 仕組み
 
 ```
- claude (本体, 非特権)                        docker (sidecar, privileged)
+ agent (本体, 非特権)                         docker (sidecar, privileged)
  ──────────────────────                       ────────────────────────────
  DOCKER_HOST=tcp://docker:2376  ───TLS───►    dockerd --host tcp://0.0.0.0:2376 (rootless, uid 1000)
  DOCKER_TLS_VERIFY=1                          DOCKER_TLS_CERTDIR=/certs
@@ -53,11 +53,11 @@
 | | 本体 | sidecar | inner container |
 |---|---|---|---|
 | `privileged` | なし | **あり** | 指定可能だが userns 内 |
-| 実行 uid | 1000 (`claude`) | 1000 (`rootless`, dockerd) | userns 内 root = 外側の uid 1000+ |
+| 実行 uid | 1000 (`agent`) | 1000 (`rootless`, dockerd) | userns 内 root = 外側の uid 1000+ |
 | ホストの秘密情報 | あり | **なし** | なし |
 | ホストのファイル | ワークスペース + 各種 bind | ワークスペースのみ | ワークスペース（`-v` で明示した範囲） |
 
-- **TLS 証明書**: `docker:dind` 系の entrypoint は `DOCKER_TLS_CERTDIR` が設定されていると初回起動時に CA・サーバー・クライアント証明書を `/certs` に生成する。サーバー証明書の SAN には `docker`（サービス名）、`localhost`、`127.0.0.1` が含まれるので**サービス名 `docker` は変更しない**。`/certs/client/key.pem` は 0644 で生成され、本体の `claude` ユーザーからも読める。証明書は volume に永続化され `dcc clear --volumes` まで残る
+- **TLS 証明書**: `docker:dind` 系の entrypoint は `DOCKER_TLS_CERTDIR` が設定されていると初回起動時に CA・サーバー・クライアント証明書を `/certs` に生成する。サーバー証明書の SAN には `docker`（サービス名）、`localhost`、`127.0.0.1` が含まれるので**サービス名 `docker` は変更しない**。`/certs/client/key.pem` は 0644 で生成され、本体のコンテナユーザー（`agent`）からも読める。証明書は volume に永続化され `dcc clear --volumes` まで残る
 - **起動順**: 本体は `depends_on: docker: condition: service_started`。起動直後の数秒は `docker` コマンドが失敗しうる（postCreate は docker を使わない）
 - **ネットワーク**: 本体側に `ports` / `hostname` / `dns` / `extra_hosts` は書けない。`sysctls: net.ipv4.ip_unprivileged_port_start=0` により uid 1000 の port driver が 1024 未満のポートも bind できる。inner container からは親 netns の `127.0.0.1` に届かない（rootlesskit `--disable-host-loopback`）
 - **永続化**: `<project>_docker-certs`（`/certs`）と `<project>_docker-data`（イメージ・コンテナ・volume・buildkit キャッシュ）。プロジェクト名でプレフィックスされ、ワークスペースごとに独立する。ホストの Docker のイメージとは共有されない

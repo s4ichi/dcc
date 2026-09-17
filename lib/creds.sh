@@ -30,7 +30,7 @@ resolve_creds() {
   if [ "$CREDS_EXPLICIT" -eq 1 ]; then
     requested="$CREDS_REQUEST"
     CREDS_SOURCE=flags
-  elif [ "${1:-}" = --adopt ] && running="$(claude_label dcc.credentials)"; then
+  elif [ "${1:-}" = --adopt ] && running="$(agent_label dcc.credentials)"; then
     requested="$running"
     CREDS_SOURCE=container
   elif [ -n "$CREDS_DEFAULT" ]; then
@@ -103,7 +103,7 @@ check_drift() {
 # credential モジュールの選択 (ラベル dcc.credentials)
 check_creds_drift() {
   local running name added="" removed=""
-  running="$(claude_label dcc.credentials | tr ',' ' ')" || return 0
+  running="$(agent_label dcc.credentials | tr ',' ' ')" || return 0
   [ "$running" != "$CREDS" ] || return 0
   for name in $CREDS; do
     case " $running " in *" $name "*) ;; *) added="${added:+$added }+$name" ;; esac
@@ -120,7 +120,7 @@ check_aws_profile_drift() {
   has_cred aws || return 0
   local want running
   want="${DCC_AWS_PROFILE:-${AWS_PROFILE:-default}}"
-  running="$(claude_label dcc.aws-profile)" || return 0
+  running="$(agent_label dcc.aws-profile)" || return 0
   [ -n "$running" ] && [ "$running" != "$want" ] || return 0
   warn aws "container was created with AWS_PROFILE=$running; requested $want" \
     "run 'AWS_PROFILE=$want $(recreate_hint)' to apply"
@@ -148,7 +148,7 @@ show_creds() {
     DCC_CREDS) echo "selected:  ${CREDS:-(none)}   # from DCC_CREDS" ;;
     none)      echo "selected:  (none)" ;;
   esac
-  if running="$(claude_label dcc.credentials | tr ',' ' ')"; then
+  if running="$(agent_label dcc.credentials | tr ',' ' ')"; then
     echo "running:   ${running:-(none)}   # $COMPOSE_PROJECT_NAME"
   else
     echo "running:   (not running)   # $COMPOSE_PROJECT_NAME"

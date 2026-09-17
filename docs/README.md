@@ -51,7 +51,7 @@ Claude Code 用コンテナ設定の仕様と、ホスト ⇔ コンテナ間で
 |---|---|
 | ホスト | `dcc` を実行する開発者のマシン |
 | ワークスペース | コンテナに渡すプロジェクトディレクトリ。コンテナ内では `/workspaces/<basename>` |
-| 本体（本体コンテナ） | compose の `claude` サービス。Claude Code が動く非特権のコンテナ |
+| 本体（本体コンテナ） | compose の `agent` サービス。Claude Code が動く非特権のコンテナ |
 | Docker sidecar | compose の `docker` サービス。rootless の dockerd を提供する。`privileged` はここだけ |
 | モジュール sidecar | credential モジュールが追加する非特権の sidecar（`gpg-signer` / `aws-credentials`） |
 | inner container | 本体から `docker run` して Docker sidecar の中で動くコンテナ |
@@ -59,11 +59,11 @@ Claude Code 用コンテナ設定の仕様と、ホスト ⇔ コンテナ間で
 | base / overlay | base は常に使う `docker-compose.yml`。overlay は `-f` で後ろに重ねる compose 断片 |
 | drift | 既存コンテナに焼き込まれた選択と、今回の要求との不一致 |
 | warm | 署名鍵のパスフレーズを `gpg-signer` 内の gpg-agent にキャッシュさせること |
-| `<repo>` | このリポジトリの clone 先（`DCC_CONFIG_DIR`。既定は `~/.config/devcontainer/claude`） |
+| `<repo>` | このリポジトリの clone 先（`DCC_CONFIG_DIR`。既定は `~/.config/dcc`） |
 
 ## 前提
 
 - ホストは macOS を主に想定している（macOS の gpg-agent / ssh-agent / Keychain の制約が設計理由の一部になっている）。
   Linux ホストでも同じ設計で動く（[customization.md](customization.md) の「ホスト OS 依存」）
 - ホストに `docker`（compose plugin 込み）がインストールされていること。`devcontainer` CLI は `dcc` には不要（devcontainer から使う場合のみ。[devcontainer.md](devcontainer.md)）
-- 本体コンテナのユーザーは `claude`（uid 1000）。ホストの uid とは一致しない前提で設計している（[git.md](git.md) の safe.directory を参照）
+- 本体コンテナのユーザーは `agent`（uid 1000）。ホストの uid とは一致しない前提で設計している（[git.md](git.md) の safe.directory を参照）

@@ -36,7 +36,7 @@
 
 | ホスト側 | コンテナ側 | モード |
 |---|---|---|
-| `<repo>/capabilities/gh/data/`（`DCC_GH_DIR`） | `/home/claude/.config/gh/` | rw |
+| `<repo>/capabilities/gh/data/`（`DCC_GH_DIR`） | `/home/agent/.config/gh/` | rw |
 
 | ファイル | 内容 | 秘密情報 |
 |---|---|---|

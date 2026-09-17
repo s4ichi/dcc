@@ -1,5 +1,5 @@
 services:
-  claude:
+  agent:
     labels:
       dcc.workspace: "${LOCAL_WORKSPACE_FOLDER:?run via dcc}"
     volumes:

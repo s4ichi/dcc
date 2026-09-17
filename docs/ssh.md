@@ -39,7 +39,7 @@
 |---|---|---|---|
 | `<repo>/capabilities/ssh/config`（`DCC_SSH_CONFIG`） | `/etc/ssh/ssh_config.d/github.conf` | ro | あり |
 | `<repo>/capabilities/ssh/known_hosts`（`DCC_SSH_KNOWN_HOSTS`） | `/etc/ssh/ssh_known_hosts` | ro | あり |
-| `<repo>/capabilities/ssh/data/`（`DCC_SSH_DIR`） | `/home/claude/.ssh/` | ro | なし（gitignore） |
+| `<repo>/capabilities/ssh/data/`（`DCC_SSH_DIR`） | `/home/agent/.ssh/` | ro | なし（gitignore） |
 
 - `config`: `Host github.com` に `User git` / `IdentityFile ~/.ssh/id_ed25519` / `IdentitiesOnly yes`。Debian の `/etc/ssh/ssh_config` が `Include /etc/ssh/ssh_config.d/*.conf` するので追加設定なしで効く
 - `known_hosts`: GitHub のホスト鍵（`https://api.github.com/meta` の `ssh_keys`）
@@ -52,7 +52,7 @@
 1. コンテナ専用の鍵を作る（パスフレーズは空にする。下記「制約」）:
    ```bash
    mkdir -p capabilities/ssh/data
-   ssh-keygen -t ed25519 -N '' -f capabilities/ssh/data/id_ed25519 -C "claude-devcontainer"
+   ssh-keygen -t ed25519 -N '' -f capabilities/ssh/data/id_ed25519 -C "dcc"
    chmod 700 capabilities/ssh/data; chmod 600 capabilities/ssh/data/id_ed25519   # bind 先でもホスト側のパーミッションが見える
    ```
 2. GitHub に**デプロイキーまたは専用アカウントの鍵**として公開鍵（`id_ed25519.pub`）を登録する。書き込み権限は必要なリポジトリだけに絞る

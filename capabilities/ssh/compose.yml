@@ -1,16 +1,16 @@
 services:
-  claude:
+  agent:
     volumes:
       - read_only: true
-        source: "${DCC_SSH_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/ssh/data}"
-        target: "/home/${DCC_USER:-claude}/.ssh"
+        source: "${DCC_SSH_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/ssh/data}"
+        target: "/home/${DCC_USER:-agent}/.ssh"
         type: "bind"
       - read_only: true
-        source: "${DCC_SSH_CONFIG:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/ssh/config}"
+        source: "${DCC_SSH_CONFIG:-${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/ssh/config}"
         target: "/etc/ssh/ssh_config.d/github.conf"
         type: "bind"
       - read_only: true
-        source: "${DCC_SSH_KNOWN_HOSTS:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/ssh/known_hosts}"
+        source: "${DCC_SSH_KNOWN_HOSTS:-${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/ssh/known_hosts}"
         target: "/etc/ssh/ssh_known_hosts"
         type: "bind"
 

@@ -46,7 +46,7 @@ sudo git config --system --add safe.directory "$(pwd)"
 # gpg.program に登録する (主経路は compose の GIT_CONFIG_* 環境変数。ここは env が剥がれた場合の保険)
 setup_gnupg() {
   local export_dir="${HOME}/.gnupg-host"
-  local client=/usr/local/lib/claude-devcontainer/gpg-sign-client.sh
+  local client=/usr/local/lib/dcc/gpg-sign-client.sh
 
   [ -s "${export_dir}/pubkeys.asc" ] || return 0
 

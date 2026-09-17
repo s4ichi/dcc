@@ -1,7 +1,7 @@
 services:
-  claude:
+  agent:
     volumes:
-      - source: "${DCC_GH_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/gh/data}"
-        target: "/home/${DCC_USER:-claude}/.config/gh"
+      - source: "${DCC_GH_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh/data}"
+        target: "/home/${DCC_USER:-agent}/.config/gh"
         type: "bind"
 

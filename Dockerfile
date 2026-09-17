@@ -1,18 +1,18 @@
 # syntax=docker/dockerfile:1
 #
-# 本体イメージ (compose の claude サービス)。Claude Code と開発ツールを入れた非特権のコンテナで、
+# 本体イメージ (compose の agent サービス)。Claude Code と開発ツールを入れた非特権のコンテナで、
 # dockerd は含まない (Docker は rootless の sidecar が提供する。docs/docker.md)。
 # devcontainer features は使わず、すべてここに焼き込む。
 #
 # build は compose 経由 (`dcc build`)。ARG は compose の build.args から渡る:
 #   USERNAME / USER_UID / USER_GID  ← DCC_USER / DCC_UID / DCC_GID
 #   GO_VERSION                      ← DCC_GO_VERSION
-# 個人のツールはこのファイルを編集せず、`FROM claude-devcontainer:base` する local/Dockerfile で足す
+# 個人のツールはこのファイルを編集せず、`FROM dcc:base` する local/Dockerfile で足す
 # (docs/customization.md)。
 
 FROM debian:bookworm-slim
 
-ARG USERNAME=claude
+ARG USERNAME=agent
 ARG USER_UID=1000
 ARG USER_GID=${USER_UID}
 ARG GO_VERSION=1.26.3
@@ -25,7 +25,7 @@ ENV GOROOT=/usr/local/go
 ENV GOPATH=/go
 ENV PATH=/home/${USERNAME}/.local/bin:/usr/local/go/bin:/go/bin:$PATH
 
-# Layer 1: APT lean config + base packages + claude user
+# Layer 1: APT lean config + base packages + container user
 #
 # recommends / suggests / doc / man / locale を入れずにイメージを小さく保つ。
 # ユーザーは sudo NOPASSWD (postCreate が system gitconfig などを書く)。境界はコンテナの外枠で引くので、
@@ -138,7 +138,7 @@ RUN set -eux; \
     mkdir -p /go/bin; \
     chown -R "${USERNAME}:${USERNAME}" /go
 
-# Layer 5: Claude Code CLI (native install into the claude user's home)
+# Layer 5: Claude Code CLI (native install into the container user's home)
 #
 # コンテナのユーザーとして install.sh を実行し、~/.local/bin/claude (実体は ~/.local/share/claude) に置く。
 # Claude Code の自動更新と `claude doctor` はこの場所を管理インストールとして扱うため、root で

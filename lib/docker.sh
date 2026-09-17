@@ -23,10 +23,10 @@ label_of() {
   docker inspect --format "{{index .Config.Labels \"$2\"}}" "$1"
 }
 
-# claude コンテナ (停止中も含む) のラベル。コンテナが無ければ失敗
-claude_label() {
+# 本体コンテナ (停止中も含む) のラベル。コンテナが無ければ失敗
+agent_label() {
   local id
-  id="$(container_id claude -a)"
+  id="$(container_id agent -a)"
   [ -n "$id" ] || return 1
   label_of "$id" "$1"
 }
@@ -51,7 +51,7 @@ project_services() {
 # 本体コンテナの状態から up が何をするかを述語にする: creating / starting / running
 up_verb() {
   local id
-  id="$(container_id claude -a)"
+  id="$(container_id agent -a)"
   if [ -z "$id" ]; then
     printf creating
   elif [ "$(docker inspect --format '{{.State.Running}}' "$id")" = true ]; then

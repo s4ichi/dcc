@@ -35,7 +35,7 @@
 
 | ホスト側 | コンテナ側 | モード |
 |---|---|---|
-| `~/.gitconfig`（`DCC_GITCONFIG`） | `/home/claude/.gitconfig` | ro |
+| `~/.gitconfig`（`DCC_GITCONFIG`） | `/home/agent/.gitconfig` | ro |
 
 - **`safe.directory`**: bind されたワークスペースはホスト uid のまま見えるため、コンテナユーザーと一致しないと git が `dubious ownership` で全操作を拒否する。postCreate が `sudo git config --system --add safe.directory "$(pwd)"` を実行する（cwd はワークスペース）
 - **署名**: `user.signingkey` / `commit.gpgsign` はホストの `~/.gitconfig*` に従う。`gpg.program` だけは `gpg` モジュール有効時に compose の `GIT_CONFIG_*` 環境変数（最優先レイヤ）が sidecar への wrapper に固定するため、ホストの `~/.gitconfig` に何が書かれていても影響しない（[gpg.md](gpg.md)）

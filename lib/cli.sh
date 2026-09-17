@@ -83,7 +83,7 @@ print_header() {
   for name in $ALL_CREDS; do
     has_cred "$name" || disabled="${disabled:+$disabled }$name"
   done
-  image="${DCC_IMAGE:-claude-devcontainer:local}"
+  image="${DCC_IMAGE:-dcc:local}"
   personal_image_enabled && image="$image  $C_DIM(base + ${LOCAL_DIR#"$CONFIG_DIR/"}/Dockerfile)$C_RST"
   {
     printf '%sdcc  %s%s  %s%s%s\n' "$C_BOLD" "$LOCAL_WORKSPACE_BASENAME" "$C_RST" "$C_DIM" "$COMPOSE_PROJECT_NAME" "$C_RST"
@@ -101,13 +101,13 @@ Usage:
   dcc [command] [workspace] [options] [args...]
 
 Commands:
-  up                 Start or create the container (claude + docker sidecar)
+  up                 Start or create the containers (agent + docker sidecar)
   exec [args]        Run claude inside the container (args are passed to claude)
   stop [--all]       Stop the compose project (--all: every workspace)
   clear [--all] [--volumes]
                      Remove the compose project(s) (keep named volumes unless --volumes)
   recreate           Remove and recreate the container
-  build [opts]       Build the claude and module sidecar images (e.g. dcc build --no-cache).
+  build [opts]       Build the agent and module sidecar images (e.g. dcc build --no-cache).
                      With \$DCC_LOCAL_DIR/Dockerfile present, the base image is built first,
                      then the personal one on top of it
   creds              Show available credential modules and the running container's selection
@@ -128,7 +128,7 @@ Credential options (default / up / exec / recreate):
 Environment (all optional; may also be put in \$DCC_CONFIG_DIR/.env):
   DCC_CREDS               Default for --creds (e.g. DCC_CREDS=gpg,ssh)
   DCC_VERBOSE             Set to 1 to stream compose / hook output (otherwise shown only on failure)
-  DCC_CONFIG_DIR          Config directory (default: ~/.config/devcontainer/claude)
+  DCC_CONFIG_DIR          Config directory (default: ~/.config/dcc)
   DCC_ENV_FILE            Env file to load (default: \$DCC_CONFIG_DIR/.env)
   DCC_WORKSPACE           Workspace path (default: \$PWD)
   DCC_LOCAL_DIR           Personal files dir (default: \$DCC_CONFIG_DIR/local, gitignored):

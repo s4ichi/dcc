@@ -18,16 +18,16 @@
 
 | 変数 | 既定値 | 内容 |
 |---|---|---|
-| `DCC_CONFIG_DIR` | `~/.config/devcontainer/claude` | このリポジトリの場所。`.env` を読む前に決まるので `.env` には書けない |
+| `DCC_CONFIG_DIR` | `~/.config/dcc` | このリポジトリの場所。`.env` を読む前に決まるので `.env` には書けない |
 | `DCC_ENV_FILE` | `$DCC_CONFIG_DIR/.env` | 読み込む env ファイル |
 | `DCC_WORKSPACE` | `$PWD` | ワークスペースの既定（引数で上書き可） |
 | `DCC_CREDS` | 空 | `--creds` の既定値（[credentials.md](credentials.md)） |
 | `DCC_VERBOSE` | 空 | `1` で compose / フックの出力を常に流す（既定では失敗時だけ全部出す） |
 | `DCC_LOCAL_DIR` | `$DCC_CONFIG_DIR/local` | 個人設定の置き場。`Dockerfile` / `compose.yml` があれば自動で使う（下記） |
 | `DCC_COMPOSE_FILES` | 空 | `local/compose.yml` に加えてさらに足す compose overlay（コロン区切りの絶対パス） |
-| `DCC_USER` / `DCC_UID` / `DCC_GID` | `claude` / `1000` / `$DCC_UID` | コンテナ内ユーザー。Dockerfile の build arg に渡る。Linux ホストで uid ≠ 1000 のときに合わせる |
-| `DCC_IMAGE` | `claude-devcontainer:local` | 本体イメージのタグ（全ワークスペースで共有。ユーザー / uid を変えたら別タグにする） |
-| `DCC_BASE_IMAGE` | `claude-devcontainer:base` | `local/Dockerfile` 使用時の base イメージ（このリポジトリの Dockerfile）のタグ。変えたら `FROM` も合わせる |
+| `DCC_USER` / `DCC_UID` / `DCC_GID` | `agent` / `1000` / `$DCC_UID` | コンテナ内ユーザー。Dockerfile の build arg に渡る。Linux ホストで uid ≠ 1000 のときに合わせる |
+| `DCC_IMAGE` | `dcc:local` | 本体イメージのタグ（全ワークスペースで共有。ユーザー / uid を変えたら別タグにする） |
+| `DCC_BASE_IMAGE` | `dcc:base` | `local/Dockerfile` 使用時の base イメージ（このリポジトリの Dockerfile）のタグ。変えたら `FROM` も合わせる |
 | `DCC_DIND_IMAGE` | `docker:dind-rootless` | Docker sidecar のイメージ（バージョン固定など） |
 | `DCC_GO_VERSION` | Dockerfile の既定 | 本体イメージの Go バージョン（build arg） |
 | `DCC_TZ` | `$TZ`、無ければ `UTC` | 本体のタイムゾーン |
@@ -85,13 +85,13 @@ include する `~/.gitconfig.local` など。無くても git は include を無
 
 ```yaml
 services:
-  claude:
+  agent:
     environment:
       MY_TOOL_MARKER: "1"
     volumes:
       - type: bind
         source: ${HOME}/.gitconfig.local
-        target: /home/claude/.gitconfig.local
+        target: /home/agent/.gitconfig.local
         read_only: true
 ```
 
@@ -101,32 +101,32 @@ services:
 ### `local/Dockerfile`: イメージにレイヤを足す
 
 このリポジトリの `Dockerfile` は変えずに、個人のツールを足したイメージを本体として使う。
-先頭を `FROM claude-devcontainer:base` にした普通の Dockerfile を置くだけでよい。
+先頭を `FROM dcc:base` にした普通の Dockerfile を置くだけでよい。
 
 ```dockerfile
-FROM claude-devcontainer:base
+FROM dcc:base
 
 USER root
 RUN apt-get update && apt-get install -y ripgrep fd-find && rm -rf /var/lib/apt/lists/*
-COPY --chown=claude:claude bin/ /home/claude/.local/bin/
+COPY --chown=agent:agent bin/ /home/agent/.local/bin/
 
-USER claude
+USER agent
 RUN curl -fsSL https://example.com/install.sh | sh
 ```
 
 内部では 2 段ビルドになる:
 
 ```
-<repo>/Dockerfile ──build──► claude-devcontainer:base   (DCC_BASE_IMAGE)
+<repo>/Dockerfile ──build──► dcc:base   (DCC_BASE_IMAGE)
                                   │ FROM
-local/Dockerfile  ──build──► claude-devcontainer:local  (DCC_IMAGE) ← 本体コンテナが使う
+local/Dockerfile  ──build──► dcc:local  (DCC_IMAGE) ← 本体コンテナが使う
 ```
 
 - `dcc build` は base → 個人の順に両方を build する（`--no-cache` は両方に効く）。`dcc` / `dcc up` は
   base が無ければ先に作り、本体イメージが無ければ compose が自動で build する
 - `COPY` の元（build context）は `local/`
 - base の `ENV`（`PATH` など）と `WORKDIR` は継承される。root が必要な処理は `USER root` で行い、
-  最後に `USER claude` へ戻す。ユーザー名を `DCC_USER` で変えている場合は `ARG USERNAME` を宣言すれば
+  最後に `USER agent` へ戻す。ユーザー名を `DCC_USER` で変えている場合は `ARG USERNAME` を宣言すれば
   base と同じ build args（`USERNAME` / `USER_UID` / `USER_GID` / `GO_VERSION` / `BASE_IMAGE`）を受け取れる
 - `DCC_USER` / `DCC_UID` を変える場合は base も変わるので、`DCC_BASE_IMAGE` と `DCC_IMAGE` の両方に
   別のタグを付け、`FROM` も合わせる

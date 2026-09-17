@@ -1,20 +1,20 @@
 # shellcheck shell=bash
 # compose プロジェクト (COMPOSE_PROJECT_NAME) を変える関数。build / up / postCreate / gpg warm / stop / down。
 
-# local/Dockerfile の FROM 先。base-image overlay で claude の image / build をこのリポジトリの Dockerfile に
-# 差し替えて `build claude` する。COMPOSE_FILES は呼び出し側が用意する。$@: docker compose build のオプション
+# local/Dockerfile の FROM 先。base-image overlay で agent の image / build をこのリポジトリの Dockerfile に
+# 差し替えて `build agent` する。COMPOSE_FILES は呼び出し側が用意する。$@: docker compose build のオプション
 build_base_image() {
   local overlay="$CONFIG_DIR/docker-compose.base-image.yml"
   [ -f "$overlay" ] || die "$overlay not found (run 'make generate' in $CONFIG_DIR)"
   step image "building $BASE_IMAGE" "Dockerfile"
-  run_step -t image compose "${COMPOSE_FILES[@]}" -f "$overlay" build "$@" claude
+  run_step -t image compose "${COMPOSE_FILES[@]}" -f "$overlay" build "$@" agent
 }
 
-# base と全 overlay を渡し、build を持つ service (claude とモジュール sidecar) をすべてビルドする
+# base と全 overlay を渡し、build を持つ service (agent とモジュール sidecar) をすべてビルドする
 build_image() {
   compose_files "$ALL_CREDS"
   personal_image_enabled && build_base_image "$@"
-  step image "building ${DCC_IMAGE:-claude-devcontainer:local} and sidecars" \
+  step image "building ${DCC_IMAGE:-dcc:local} and sidecars" \
     "$(personal_image_enabled && printf '%s/Dockerfile' "${LOCAL_DIR#"$CONFIG_DIR/"}" || printf Dockerfile)"
   run_step -t image compose "${COMPOSE_FILES[@]}" build "$@"
   done_step built "${SECONDS}s"
@@ -62,11 +62,11 @@ warm_gpg() {
 # コンテナ内で postCreate を一度だけ実行する (マーカーはコンテナローカル。失敗時は次の up で再実行)。
 # postCreate.sh は "<主語>: <述語>" を 1 行ずつ出すので relay でそのまま ▸ 行にする
 run_post_create() {
-  compose exec -T --user "$REMOTE_USER" claude test -e "$POSTCREATE_MARKER" && return 0
-  compose exec -T --user "$REMOTE_USER" --workdir "$REMOTE_WORKSPACE" claude \
+  compose exec -T --user "$REMOTE_USER" agent test -e "$POSTCREATE_MARKER" && return 0
+  compose exec -T --user "$REMOTE_USER" --workdir "$REMOTE_WORKSPACE" agent \
     bash "$REMOTE_HOOKS_DIR/postCreate.sh" 2>&1 | relay \
     || { fail containers "postCreate failed (rerun with 'dcc up')"; exit 1; }
-  compose exec -T --user "$REMOTE_USER" claude touch "$POSTCREATE_MARKER"
+  compose exec -T --user "$REMOTE_USER" agent touch "$POSTCREATE_MARKER"
 }
 
 # 既存コンテナは設定が変わっていても作り直さない。反映は dcc recreate。
@@ -94,7 +94,7 @@ up_container() {
 # ここで端末を claude に渡す。claude の終了コードがそのまま dcc の終了コードになる
 exec_claude() {
   done_step ready "${SECONDS}s"
-  compose exec --user "$REMOTE_USER" --workdir "$REMOTE_WORKSPACE" claude claude "$@"
+  compose exec --user "$REMOTE_USER" --workdir "$REMOTE_WORKSPACE" agent claude "$@"
 }
 
 stop_containers() {

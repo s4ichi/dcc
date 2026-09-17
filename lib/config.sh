@@ -65,10 +65,10 @@ load_config() {
   HOOKS_DIR="$CONFIG_DIR/lifecycle_hooks"
   LOCAL_DIR="${DCC_LOCAL_DIR:-$CONFIG_DIR/local}"
   GPG_EXPORT_DIR="${DCC_GPG_EXPORT_DIR:-$CAPABILITIES_DIR/gpg/gnupg-host}"
-  BASE_IMAGE="${DCC_BASE_IMAGE:-claude-devcontainer:base}"
+  BASE_IMAGE="${DCC_BASE_IMAGE:-dcc:base}"
   CLAUDE_HOME_VOLUME="${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}"
-  REMOTE_USER="${DCC_USER:-claude}"
-  REMOTE_HOOKS_DIR=/usr/local/lib/claude-devcontainer/hooks
+  REMOTE_USER="${DCC_USER:-agent}"
+  REMOTE_HOOKS_DIR=/usr/local/lib/dcc/hooks
   POSTCREATE_MARKER="/home/$REMOTE_USER/.dcc-postcreate-done"
 
   export_container_env

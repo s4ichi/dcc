@@ -32,7 +32,7 @@ MCP サーバーは「どのサーバーに繋ぐか（設定）」と「その�
 
 - **Keychain を渡さない**: コンテナは Linux で Keychain が無く、Claude Code にも Keychain の中身を export する手段や macOS 側でファイル保存へ切り替える設定が無い。橋渡しするには `security` コマンドでホストの blob を取り出してコンテナへ書き込む独自処理が要り、ホストの全 token（本体のログインを含む）をまとめて渡すことになる。ホストとコンテナで token を別系統にする方が境界として素直で、コンテナ側は独立に失効できる
 - **認証は 1 回で済む**: `~/.claude` は共有時はホストの bind、非共有時は固定名の external volume なので、どちらでもコンテナで取った token は `dcc recreate` / `clear` を跨いで残り、全ワークスペースで共有される
-- **callback ポートを公開しない**: 公開すればブラウザだけで認証が完了するが、`claude` サービスは netns 共有のため `ports` を書けず、sidecar 側で公開するとホストにポートが開く。「ホストへ公開しない」方針（[docker.md](docker.md)）を優先し、リダイレクト URL の貼り付けで済ませる
+- **callback ポートを公開しない**: 公開すればブラウザだけで認証が完了するが、`agent` サービス（本体）は netns 共有のため `ports` を書けず、sidecar 側で公開するとホストにポートが開く。「ホストへ公開しない」方針（[docker.md](docker.md)）を優先し、リダイレクト URL の貼り付けで済ませる
 
 ## 仕組み
 
@@ -59,7 +59,7 @@ MCP サーバーは「どのサーバーに繋ぐか（設定）」と「その�
 
 以降は refresh token で自動更新される。失敗したら `/mcp` に `needs authentication` と出るので同じ手順で再認証する。token を消すには `claude mcp logout <name>`。callback のポートは `MCP_OAUTH_CALLBACK_PORT` で固定できる（IdP に redirect URI を登録する必要がある場合）。
 
-`headers` に `${VAR}` で API key を渡す構成なら、その環境変数を**コンテナ内**に用意する（`DCC_CONTAINER_ENV_<NAME>`、`local/compose.yml` の `services.claude.environment`、または `~/.claude/settings.json` の `env`。最後のものは共有時はホストにも効く。[customization.md](customization.md)）。
+`headers` に `${VAR}` で API key を渡す構成なら、その環境変数を**コンテナ内**に用意する（`DCC_CONTAINER_ENV_<NAME>`、`local/compose.yml` の `services.agent.environment`、または `~/.claude/settings.json` の `env`。最後のものは共有時はホストにも効く。[customization.md](customization.md)）。
 
 ### スコープごとの扱い
 

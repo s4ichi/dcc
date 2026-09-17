@@ -42,7 +42,7 @@
 |---|---|---|---|
 | `~/.gnupg/private-keys-v1.d/`（`DCC_GNUPG_DIR`） | `gpg-signer` の `/host-keys/` | ro | 署名鍵の keygrip ファイルのコピー元（**本体にはマウントしない**） |
 | `<repo>/capabilities/gpg/gnupg-host/`（`DCC_GPG_EXPORT_DIR`） | `gpg-signer` の `/gnupg-host/`、本体の `~/.gnupg-host/` | ro | ホスト側の前処理が export した `pubkeys.asc` / `ownertrust.txt` / `keygrips.txt` / `signing-key.txt` |
-| `<repo>/capabilities/gpg/gpg-sign-client.sh` | 本体の `/usr/local/lib/claude-devcontainer/gpg-sign-client.sh` | ro | `gpg.program` wrapper |
+| `<repo>/capabilities/gpg/gpg-sign-client.sh` | 本体の `/usr/local/lib/dcc/gpg-sign-client.sh` | ro | `gpg.program` wrapper |
 | （なし） | `gpg-signer` の `/root/.gnupg/` | ローカル | entrypoint が構築する keyring |
 | （なし） | 本体の `~/.gnupg/` | ローカル | postCreate が構築する**検証専用** keyring |
 

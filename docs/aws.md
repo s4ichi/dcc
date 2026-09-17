@@ -35,12 +35,12 @@ sidecar は自前の `server.py` しか動かさず、access log は method / pa
 - **`~/.aws` を本体に bind しない**: ro でも `config` / `credentials` の全 profile が読める。長期鍵をコンテナに持ち込まないのが原則
 - **netns 共有 + `127.0.0.1`**: AWS SDK の Container Credential Provider は `http://` の endpoint を loopback（127.0.0.1 / localhost / ::1）と ECS/EKS の link-local にしか許可しない。専用 network 越しの `http://aws-credentials:8080` は別 netns・別 IP なので botocore に `Unsupported host` で拒否される。そのため sidecar も `network_mode: service:docker` で Docker sidecar の netns に join する。帰結として endpoint は netns の内側からしか届かない（`ports` はそもそも書けない）
 - **sidecar 側でキャッシュしない**: SDK が `Expiration` まで自前でキャッシュし、login セッションの管理は CLI に任せる。sidecar は変換するだけ
-- **`depends_on` は claude → aws-credentials**: 両者とも `docker` の netns に join するだけで互いには依存しないため循環しない
+- **`depends_on` は agent → aws-credentials**: 両者とも `docker` の netns に join するだけで互いには依存しないため循環しない
 
 ## 仕組み
 
 ```
- claude (本体)                                aws-credentials (sidecar, 非特権)
+ agent (本体)                                 aws-credentials (sidecar, 非特権)
   AWS_CONTAINER_CREDENTIALS_FULL_URI          python3 /server.py が 127.0.0.1:8080 で listen
    = http://127.0.0.1:8080/credentials   ──►   GET /credentials
   AWS_REGION                                    └─ aws configure export-credentials

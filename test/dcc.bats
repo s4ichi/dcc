@@ -123,7 +123,7 @@ setup() {
 }
 
 @test "resolve_creds --adopt: takes the existing container's label when no flag was given" {
-  claude_label() { printf 'gpg,ssh'; }
+  agent_label() { printf 'gpg,ssh'; }
   CREDS_DEFAULT=aws
   CREDS_EXPLICIT=0 CREDS_REQUEST=""
   resolve_creds --adopt
@@ -132,7 +132,7 @@ setup() {
 }
 
 @test "resolve_creds --adopt: explicit flags win over the running container" {
-  claude_label() { printf 'gpg,ssh'; }
+  agent_label() { printf 'gpg,ssh'; }
   CREDS_EXPLICIT=1 CREDS_REQUEST=aws
   resolve_creds --adopt
   [ "$CREDS" = aws ]
@@ -140,7 +140,7 @@ setup() {
 }
 
 @test "resolve_creds --adopt: no container → falls back to DCC_CREDS" {
-  claude_label() { return 1; }
+  agent_label() { return 1; }
   CREDS_EXPLICIT=0 CREDS_REQUEST=""
   CREDS_DEFAULT=aws resolve_creds --adopt
   [ "$CREDS" = aws ]
@@ -148,7 +148,7 @@ setup() {
 }
 
 @test "check_creds_drift: warns with +added/-removed and a recreate hint" {
-  claude_label() { printf 'aws,gpg'; }
+  agent_label() { printf 'aws,gpg'; }
   CREDS_EXPLICIT=1 CREDS_REQUEST="gpg,ssh"
   resolve_creds
   run check_creds_drift
@@ -158,7 +158,7 @@ setup() {
 }
 
 @test "check_creds_drift: silent when the selection matches" {
-  claude_label() { printf 'gpg,ssh'; }
+  agent_label() { printf 'gpg,ssh'; }
   CREDS_EXPLICIT=1 CREDS_REQUEST="gpg,ssh"
   resolve_creds
   run check_creds_drift
@@ -166,7 +166,7 @@ setup() {
 }
 
 @test "check_aws_profile_drift: only with the aws module, only when the label differs" {
-  claude_label() { [ "$1" = dcc.aws-profile ] && printf 'prod'; }
+  agent_label() { [ "$1" = dcc.aws-profile ] && printf 'prod'; }
   CREDS_EXPLICIT=1 CREDS_REQUEST=aws
   resolve_creds
   DCC_AWS_PROFILE=dev run check_aws_profile_drift
@@ -266,8 +266,8 @@ setup() {
 # --- ログ ----------------------------------------------------------------------
 
 @test "step / warn / done_step: subject column and optional note" {
-  run step containers "creating claude, docker" "note"
-  [ "$output" = "▸ containers     creating claude, docker  (note)" ]
+  run step containers "creating agent, docker" "note"
+  [ "$output" = "▸ containers     creating agent, docker  (note)" ]
   run warn gpg "not cached" "run warm.sh"
   [ "${lines[0]}" = "! gpg            not cached" ]
   [ "${lines[1]}" = "                 run warm.sh" ]

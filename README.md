@@ -33,7 +33,7 @@ Claude Code は任意のコマンドを実行できる。読み込んだ Web ペ
 ```
  host                         compose project（ワークスペースごとに 1 つ）
  ────                         ┌────────────────────────────────────────────────────────────┐
-  dcc ─ docker compose ─────► │  claude（本体・非特権）             docker（sidecar）         │
+  dcc ─ docker compose ─────► │  agent（本体・非特権）              docker（sidecar）         │
                               │   Claude Code が動く場所     TLS    rootless dockerd          │
   ~/src/my-project ◄─ bind ─► │   /workspaces/my-project  ───────►  privileged はここだけ     │
   ~/.gitconfig ─── ro ──────► │   ~/.gitconfig                      秘密情報のマウントなし    │
@@ -57,11 +57,11 @@ Claude Code は任意のコマンドを実行できる。読み込んだ Web ペ
 ## クイックスタート
 
 ```bash
-# 1. このリポジトリを ~/.config/devcontainer/claude に clone しておく
+# 1. このリポジトリを ~/.config/dcc に clone しておく
 #    （別の場所に置くなら DCC_CONFIG_DIR を export する）
 
 # 2. dcc を PATH の通った場所に置く
-ln -s ~/.config/devcontainer/claude/dcc ~/.local/bin/dcc
+ln -s ~/.config/dcc/dcc ~/.local/bin/dcc
 
 # 3. 作業したいディレクトリで起動する
 cd ~/src/my-project
@@ -144,7 +144,7 @@ export DCC_CREDS=gpg,ssh     # 新規作成時の既定値
 一覧は [`.env.example`](.env.example)。
 
 - コンテナに環境変数を渡す: `DCC_CONTAINER_ENV_<NAME>=value`
-- イメージにツールを足す: `local/Dockerfile`（`FROM claude-devcontainer:base`）
+- イメージにツールを足す: `local/Dockerfile`（`FROM dcc:base`）
 - bind や環境変数を足す: `local/compose.yml`
 
 `local/` と `.env` は gitignore 済みで、置くだけで `dcc` が使う。詳細は [docs/customization.md](docs/customization.md)。

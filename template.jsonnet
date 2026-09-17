@@ -1,5 +1,5 @@
 // 設定の単一ソース。`make generate` で次を生成する:
-//   docker-compose.yml               base (claude 本体 + docker sidecar)
+//   docker-compose.yml               base (agent = 本体 + docker sidecar)
 //   docker-compose.workspace.yml     dcc 用のワークスペース bind
 //   docker-compose.base-image.yml    local/Dockerfile 使用時に base イメージを build する上書き
 //   capabilities/<name>/compose.yml  credential モジュールごとの overlay
@@ -13,10 +13,10 @@
 // 構成の説明は docs/architecture.md、境界の考え方は docs/boundaries.md。
 
 local home = '${HOME}';
-local configDir = '${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}';
+local configDir = '${DCC_CONFIG_DIR:-${HOME}/.config/dcc}';
 
 // コンテナ内ユーザー。Dockerfile の build arg と一致させる
-local remoteUser = '${DCC_USER:-claude}';
+local remoteUser = '${DCC_USER:-agent}';
 local remoteUid = '${DCC_UID:-1000}';
 local remoteGid = '${DCC_GID:-${DCC_UID:-1000}}';
 local remoteHome = '/home/' + remoteUser;
@@ -34,8 +34,8 @@ local gitconfig = '${DCC_GITCONFIG:-${HOME}/.gitconfig}';
 
 // 本体イメージ。local/Dockerfile があるときは base (このリポジトリの Dockerfile) → final の 2 段で、
 // dcc が DCC_BUILD_CONTEXT / DCC_DOCKERFILE を export して final の build 元を差し替える
-local claudeImage = '${DCC_IMAGE:-claude-devcontainer:local}';
-local baseImage = '${DCC_BASE_IMAGE:-claude-devcontainer:base}';
+local agentImage = '${DCC_IMAGE:-dcc:local}';
+local baseImage = '${DCC_BASE_IMAGE:-dcc:base}';
 local buildContext = '${DCC_BUILD_CONTEXT:-' + configDir + '}';
 local dockerfile = '${DCC_DOCKERFILE:-Dockerfile}';
 local dindImage = '${DCC_DIND_IMAGE:-docker:dind-rootless}';
@@ -71,7 +71,7 @@ local volume(source, target, readonly=false) = {
 };
 
 // lifecycle_hooks/ の bind 先。postCreate はここから実行する (dcc の REMOTE_HOOKS_DIR と同じ値)
-local hooksDir = '/usr/local/lib/claude-devcontainer/hooks';
+local hooksDir = '/usr/local/lib/dcc/hooks';
 
 // 本体と sidecar に同一パスで bind する。`docker run -v /workspaces/...` を解決するのは sidecar の dockerd
 local workspaceMount = bind(workspaceSource, workspaceTarget) { consistency: 'cached' };
@@ -86,7 +86,7 @@ local awsProfile = '${DCC_AWS_PROFILE:-${AWS_PROFILE:-default}}';
 local gpgSignerPort = '${DCC_GPG_SIGNER_PORT:-8081}';
 local gnupgDir = '${DCC_GNUPG_DIR:-${GNUPGHOME:-${HOME}/.gnupg}}';
 local gpgExportDir = '${DCC_GPG_EXPORT_DIR:-' + configDir + '/capabilities/gpg/gnupg-host}';
-local gpgSignClient = '/usr/local/lib/claude-devcontainer/gpg-sign-client.sh';
+local gpgSignClient = '/usr/local/lib/dcc/gpg-sign-client.sh';
 
 local sshDir = '${DCC_SSH_DIR:-' + configDir + '/capabilities/ssh/data}';
 local sshConfig = '${DCC_SSH_CONFIG:-' + configDir + '/capabilities/ssh/config}';
@@ -99,7 +99,7 @@ local credModules = {
   // ~/.aws は本体に渡さない。sidecar が login セッションから一時 credential を発行する。docs/aws.md
   aws: {
     services: {
-      claude: {
+      agent: {
         environment: {
           AWS_CONTAINER_CREDENTIALS_FULL_URI: 'http://127.0.0.1:' + awsCredentialsPort + '/credentials',
           AWS_REGION: awsRegion,
@@ -109,7 +109,7 @@ local credModules = {
         labels: { 'dcc.aws-profile': awsProfile },
       },
       'aws-credentials': {
-        image: 'claude-devcontainer-aws-credentials:local',
+        image: 'dcc-aws-credentials:local',
         build: { context: configDir + '/capabilities/aws' },
         network_mode: sharedNetns,
         environment: {
@@ -129,7 +129,7 @@ local credModules = {
   // 外すと base の volume (claude-home) が使われ、認証はコンテナ側で独立に持つ
   claude: {
     services: {
-      claude: {
+      agent: {
         volumes: [
           bind(claudeDir, remoteHome + '/.claude'),
           // single-file bind だと Claude Code の atomic write (rename) が EXDEV で失敗するため、
@@ -144,7 +144,7 @@ local credModules = {
   // 本体は gpg.program の wrapper 経由で署名 API を呼ぶ。docs/gpg.md
   gpg: {
     services: {
-      claude: {
+      agent: {
         environment: {
           DCC_GPG_SIGN_URI: 'http://127.0.0.1:' + gpgSignerPort + '/sign',
           // git config の最優先レイヤで wrapper に固定する (ホストの ~/.gitconfig の gpg.program より優先)
@@ -159,7 +159,7 @@ local credModules = {
         ],
       },
       'gpg-signer': {
-        image: 'claude-devcontainer-gpg-signer:local',
+        image: 'dcc-gpg-signer:local',
         build: { context: configDir + '/capabilities/gpg' },
         network_mode: sharedNetns,
         environment: { BIND_PORT: gpgSignerPort },
@@ -174,7 +174,7 @@ local credModules = {
   // GitHub 接続用。接続設定とホスト鍵は /etc/ssh に、コンテナ専用の秘密鍵は ~/.ssh に ro で渡す。docs/ssh.md
   ssh: {
     services: {
-      claude: {
+      agent: {
         volumes: [
           bind(sshDir, remoteHome + '/.ssh', readonly=true),
           bind(sshConfig, '/etc/ssh/ssh_config.d/github.conf', readonly=true),
@@ -187,7 +187,7 @@ local credModules = {
   // コンテナ専用の gh 設定 / token。docs/github.md
   gh: {
     services: {
-      claude: {
+      agent: {
         volumes: [
           bind(ghDir, remoteHome + '/.config/gh'),
         ],
@@ -198,8 +198,8 @@ local credModules = {
 
 local compose = {
   services: {
-    claude: {
-      image: claudeImage,
+    agent: {
+      image: agentImage,
       build: {
         context: buildContext,
         dockerfile: dockerfile,
@@ -265,7 +265,7 @@ local compose = {
 // devcontainer から使う場合はワークスペース側の compose で同じ bind を与える (docs/devcontainer.md)
 local workspaceOverlay = {
   services: {
-    claude: {
+    agent: {
       labels: { 'dcc.workspace': workspaceSource },
       volumes: [workspaceMount],
     },
@@ -276,10 +276,10 @@ local workspaceOverlay = {
 };
 
 // local/Dockerfile があるとき、その FROM 先 (base) をこのリポジトリの Dockerfile から build するための上書き。
-// dcc build / dcc up が `build claude` のときだけ -f に足す
+// dcc build / dcc up が `build agent` のときだけ -f に足す
 local baseImageOverlay = {
   services: {
-    claude: {
+    agent: {
       image: baseImage,
       build: {
         context: configDir,

@@ -17,10 +17,10 @@ Claude Code をホスト（開発者のマシン）から隔離したコンテ�
 | パス | 役割 |
 |---|---|
 | `template.jsonnet` | 設定の単一ソース。ここだけを編集する |
-| `docker-compose.yml` | 生成物（base）。`claude`（本体）と `docker`（sidecar）の 2 サービス定義。常時マウントのみ。ワークスペースの bind は含まない |
+| `docker-compose.yml` | 生成物（base）。`agent`（本体）と `docker`（sidecar）の 2 サービス定義。常時マウントのみ。ワークスペースの bind は含まない |
 | `docker-compose.workspace.yml` | 生成物（overlay）。`dcc` 用のワークスペース bind（本体と sidecar に同一パス）と `dcc.workspace` ラベル。`dcc` が export する `LOCAL_WORKSPACE_FOLDER` / `LOCAL_WORKSPACE_BASENAME` で補間する。devcontainer から使う場合はワークスペース側の compose で代替（[devcontainer.md](devcontainer.md)） |
-| `capabilities/<name>/compose.yml` | 生成物（overlay）。credential モジュールごとの compose 断片（`services.claude` への追記やモジュール専用 sidecar の追加。[credentials.md](credentials.md)） |
-| `docker-compose.base-image.yml` | 生成物（overlay）。`local/Dockerfile` があるときに base イメージ（このリポジトリの `Dockerfile` → `DCC_BASE_IMAGE`）を build するための `claude` の `image` / `build` 上書き。`dcc build` / `dcc up` だけが使う（[customization.md](customization.md)） |
+| `capabilities/<name>/compose.yml` | 生成物（overlay）。credential モジュールごとの compose 断片（`services.agent` への追記やモジュール専用 sidecar の追加。[credentials.md](credentials.md)） |
+| `docker-compose.base-image.yml` | 生成物（overlay）。`local/Dockerfile` があるときに base イメージ（このリポジトリの `Dockerfile` → `DCC_BASE_IMAGE`）を build するための `agent` の `image` / `build` 上書き。`dcc build` / `dcc up` だけが使う（[customization.md](customization.md)） |
 | `Dockerfile` | 本体イメージ。`debian:bookworm-slim` ベース、dockerd は含まない。個人のレイヤは `local/Dockerfile` で `FROM` して足す |
 | `local/` | gitignore 済み。個人の `Dockerfile` / `compose.yml` を置くと `dcc` が自動で使う（`DCC_LOCAL_DIR` で場所を変更可。[customization.md](customization.md)） |
 | `Makefile` | `generate` / `fmt` / `check`（= `lint` + `test` + Jsonnet の評価）/ `clean` |
@@ -49,7 +49,7 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
   ファイルの生成・書き換えはしない。
 - `bind(source, target, readonly)` / `volume(...)` ヘルパは compose の long syntax を返す。
 - compose ファイル中の `${VAR}` は **docker compose が補間する**。`${HOME}` はシェル由来、
-  `${DCC_CONFIG_DIR}`（このリポジトリの場所。未設定時の既定値 `~/.config/devcontainer/claude` を
+  `${DCC_CONFIG_DIR}`（このリポジトリの場所。未設定時の既定値 `~/.config/dcc` を
   compose 側に持つ）と `${DCC_CREDS}` は `dcc` が export する。`${LOCAL_WORKSPACE_FOLDER}` /
   `${LOCAL_WORKSPACE_BASENAME}` は workspace overlay だけが使い、未設定なら `:?run via dcc` で失敗する。
 - 利用者ごとの値（ユーザー / uid、イメージ、タイムゾーン、ホスト側パス、ポートなど）はすべて既定値付きの
@@ -64,9 +64,9 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 ```
  host                                compose project: dcc-<basename>-<sha256(path)[:8]>
  ────                                ┌─────────────────────────────────────────────────────────┐
-  dcc ── export ──►                  │  claude (本体)                      docker (sidecar)     │
-   COMPOSE_PROJECT_NAME              │   image: claude-devcontainer:local   image: docker:*-dind-rootless
-   DCC_CONFIG_DIR                    │   user: claude (uid 1000)            privileged: true (ここだけ)
+  dcc ── export ──►                  │  agent (本体)                       docker (sidecar)     │
+   COMPOSE_PROJECT_NAME              │   image: dcc:local                   image: docker:*-dind-rootless
+   DCC_CONFIG_DIR                    │   user: agent (uid 1000)             privileged: true (ここだけ)
    LOCAL_WORKSPACE_FOLDER            │   privileged なし                    dockerd rootless (uid 1000)
    LOCAL_WORKSPACE_BASENAME          │   network_mode: service:docker ◄──── netns 共有        │
    DCC_CREDS                         │   DOCKER_HOST=tcp://docker:2376 ───► tcp/2376 (TLS)     │
@@ -81,7 +81,7 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 
 `COMPOSE_PROJECT_NAME = dcc-<basename を小文字化し [a-z0-9_-] 以外を削除>-<ワークスペース絶対パスの sha256 先頭 8 桁>`
 
-- `dcc` はすべての compose 呼び出しに `-p` で渡す。未設定だと compose ファイルのディレクトリ名（`claude`）
+- `dcc` はすべての compose 呼び出しに `-p` で渡す。未設定だと compose ファイルのディレクトリ名
   になり全ワークスペースが同じプロジェクトに衝突する。
 - basename は compose のプロジェクト名に使える文字（`[a-z0-9_-]`）だけに落とす。
 - パスのハッシュにより、同名ディレクトリが別の場所にあっても衝突しない。
@@ -90,10 +90,10 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 - devcontainer CLI から使う場合のプロジェクト名は CLI が決める（`<basename>_devcontainer`。
   [devcontainer.md](devcontainer.md)）。
 
-### `claude`（本体）サービス
+### `agent`（本体）サービス
 
-- `image: claude-devcontainer:local` + `build:` を併記し、全ワークスペースで 1 つのイメージタグを共有する
-  （`image` がないと `<project>-claude` としてワークスペースごとにビルドされる）。
+- `image: dcc:local` + `build:` を併記し、全ワークスペースで 1 つのイメージタグを共有する
+  （`image` がないと `<project>-agent` としてワークスペースごとにビルドされる）。
 - `command: ['sleep', 'infinity']` でコンテナを生かし、`dcc` は `docker compose exec` で claude を起動する。
   `init: true` で tini を PID 1 にし、`stop` の SIGTERM が `sleep` に届いて即終了するようにする
   （`sleep` が PID 1 だと SIGTERM を無視し、grace period の 10 秒待ってから kill される）。
@@ -129,11 +129,11 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 
 | Layer | 内容 |
 |---|---|
-| 1 | APT lean 設定（recommends/suggests/doc/man/locale を除外）、基本パッケージ、`claude` ユーザー作成（uid/gid 1000、sudo NOPASSWD） |
+| 1 | APT lean 設定（recommends/suggests/doc/man/locale を除外）、基本パッケージ、コンテナユーザー（既定 `agent`）作成（uid/gid 1000、sudo NOPASSWD） |
 | 2 | Docker CLI + buildx + compose plugin（dockerd なし） |
 | 3 | GitHub CLI (`gh`) |
 | 4 | Go（`GO_VERSION` build arg、`GOROOT=/usr/local/go`、`GOPATH=/go`） |
-| 5 | Claude Code CLI（`claude` ユーザーとして `install.sh` を実行し `~/.local/bin/claude` に配置。自動更新・doctor がこの場所を管理インストールとして扱う） |
+| 5 | Claude Code CLI（コンテナユーザーとして `install.sh` を実行し `~/.local/bin/claude` に配置。自動更新・doctor がこの場所を管理インストールとして扱う） |
 | 6 | `yq` |
 | 7 | `duckdb` CLI |
 | 8 | `jsonnet` / `jsonnetfmt`（go-jsonnet を Go でビルド） |
@@ -144,11 +144,11 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 strace / gcc / g++ / make / python3 / pip / venv などが含まれる。
 
 `PATH` は `~/.local/bin:/usr/local/go/bin:/go/bin:$PATH`。`LANG=LC_ALL=C.UTF-8`。
-最終 `USER` は `claude`、`WORKDIR` は `/workspaces`。
+最終 `USER` はコンテナユーザー（既定 `agent`）、`WORKDIR` は `/workspaces`。
 
 ユーザー名 / uid / gid / Go バージョンは compose の `build.args`（`DCC_USER` / `DCC_UID` / `DCC_GID` /
 `DCC_GO_VERSION`）から `ARG` に渡る。個人のツールを足すときはこの Dockerfile を編集せず、
-`FROM claude-devcontainer:base` する `local/Dockerfile` を置く。`dcc` がそれを見つけると、このリポジトリの
+`FROM dcc:base` する `local/Dockerfile` を置く。`dcc` がそれを見つけると、このリポジトリの
 Dockerfile を `DCC_BASE_IMAGE` として先に build し、`local/Dockerfile` の成果物を `DCC_IMAGE` として
 本体コンテナに使う（compose には `DCC_BUILD_CONTEXT` / `DCC_DOCKERFILE` を export して伝える。
 [customization.md](customization.md)）。
@@ -163,11 +163,11 @@ devcontainer の両方から同じスクリプトを呼ぶ。
 `aws` / `ssh` / `gh` / `claude`: ソースの存在チェック）。`dcc up` は選択したモジュール名を渡して呼び、devcontainer では
 `initializeCommand` に書く。
 
-**`postCreate.sh`（コンテナ側）**: `lifecycle_hooks/` を丸ごと `/usr/local/lib/claude-devcontainer/hooks`
+**`postCreate.sh`（コンテナ側）**: `lifecycle_hooks/` を丸ごと `/usr/local/lib/dcc/hooks`
 に read-only bind し、そこから実行する。`dcc up` はコンテナ作成後に `docker compose exec` で一度だけ呼ぶ
 （実行済みはコンテナローカルのマーカー `~/.dcc-postcreate-done` で判定。途中で失敗すればマーカーが無いので
 次の `up` で再実行される）。devcontainer では `postCreateCommand` に同じパスを書く。
-ワークスペースを cwd として `claude` ユーザーで実行され、次を行う:
+ワークスペースを cwd としてコンテナユーザーで実行され、次を行う:
 
 1. `claude update`（焼き込み版をコンテナ層で最新化。recreate で焼き込み版に戻る。失敗は警告のみ）
 2. `~/.claude` の初期化。`claude` 有効時は `~/.claude.json.host` → `~/.claude.json` のコピー、無効時は volume の所有者修正のみ（[claude-code.md](claude-code.md)）
@@ -185,7 +185,7 @@ dcc [command] [workspace] [options] [args...]
 
 - ワークスペースは引数 → `DCC_WORKSPACE` → `$PWD` の順で決まる。
   第 1 非オプション引数がディレクトリならワークスペースとして扱う。
-- 設定ディレクトリは `DCC_CONFIG_DIR`（デフォルト `~/.config/devcontainer/claude`）。起動時に
+- 設定ディレクトリは `DCC_CONFIG_DIR`（デフォルト `~/.config/dcc`）。起動時に
   `${DCC_CONFIG_DIR}/.env`（`DCC_ENV_FILE` で変更可）を bash として読み、`DCC_*` を export する
   （シェルの環境変数が優先）。
 - `local/compose.yml`（`DCC_LOCAL_DIR`）があれば、次いで `DCC_COMPOSE_FILES`（コロン区切り）の
@@ -197,12 +197,12 @@ dcc [command] [workspace] [options] [args...]
 |---|---|
 | `dcc`（デフォルト） | `up` → gpg warm（`gpg` 有効時） → `claude` を exec |
 | `dcc up` | `initialize.sh <選択モジュール>` → drift の検査 → （必要なら volume `dcc-claude-home` の作成、base イメージの build）→ `docker compose -f base -f workspace -f <overlay>… [-f local/compose.yml] [-f $DCC_COMPOSE_FILES] up -d --no-recreate` → 未実行なら `postCreate.sh` |
-| `dcc exec [args]` | `up` → gpg warm（`capabilities/gpg/warm.sh`） → `docker compose exec -u claude -w /workspaces/<name> claude claude [args]` |
+| `dcc exec [args]` | `up` → gpg warm（`capabilities/gpg/warm.sh`） → `docker compose exec -u agent -w /workspaces/<name> agent claude [args]` |
 | `dcc creds` | モジュール一覧、既定値、今回の解決結果、実行中コンテナの選択を表示 |
 | `dcc stop [--all]` | `docker compose -p <project> stop`（`--all` で全ワークスペースの全プロジェクト） |
 | `dcc clear [--all] [--volumes]` | `docker compose -p <project> down [--volumes]`。`--volumes` で sidecar の named volume も削除、`--all` で全ワークスペース |
 | `dcc recreate` | `clear` → `up`（named volume は残る） |
-| `dcc build [opts]` | `docker compose -f <base> -f <全 overlay> build [opts]`（`claude` とモジュール専用 sidecar をすべてビルド）。`local/Dockerfile` があればその前に `-f docker-compose.base-image.yml` 付きで `build claude` し base を作る |
+| `dcc build [opts]` | `docker compose -f <base> -f <全 overlay> build [opts]`（`agent` とモジュール専用 sidecar をすべてビルド）。`local/Dockerfile` があればその前に `-f docker-compose.base-image.yml` 付きで `build agent` し base を作る |
 | `dcc list` / `ls` | 全ワークスペースの本体コンテナ一覧（ID / status / name / project / credentials / workspace） |
 | `dcc inspect` | 各本体コンテナの name / status / workspace / project / credentials / image |
 
@@ -222,7 +222,7 @@ compose ラベルの無いコンテナは対象外としてスキップする。
 | `lib/config.sh` | `.env` の読み込み、既定値、`DCC_CONTAINER_ENV_*`、`local/Dockerfile` の検出 |
 | `lib/cli.sh` | 引数（`parse_args`）、ワークスペースと compose プロジェクト名（`resolve_workspace`）、ヘッダーと usage |
 | `lib/creds.sh` | credential モジュールの解決（`resolve_creds`）、`-f` の並び（`compose_files`）、drift 検査（`check_drift`） |
-| `lib/docker.sh` | docker / compose の状態を**読むだけ**の関数（`container_id` / `claude_label` / `project_services` …） |
+| `lib/docker.sh` | docker / compose の状態を**読むだけ**の関数（`container_id` / `agent_label` / `project_services` …） |
 | `lib/project.sh` | compose プロジェクトを**変える**関数（`up_container` / `build_image` / `stop_containers` / `clear_containers` …） |
 | `lib/all.sh` | 全ワークスペース横断（`list` / `inspect` / `for_each_project`） |
 

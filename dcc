@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dcc: docker compose の薄いラッパー。ワークスペースごとに claude 本体 + docker sidecar を管理する。
+# dcc: docker compose の薄いラッパー。ワークスペースごとに本体 (agent) + docker sidecar を管理する。
 # 使い方は `dcc help` と README.md、仕様は docs/architecture.md。
 #
 # 本体は lib/*.sh (すべて DCC_CONFIG_DIR 基準で探す。compose ファイルと同じ場所):
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # このリポジトリの場所。$0 からは辿らない (dcc は PATH 上に symlink / コピーで置かれうる)
-CONFIG_DIR="${DCC_CONFIG_DIR:-$HOME/.config/devcontainer/claude}"
+CONFIG_DIR="${DCC_CONFIG_DIR:-$HOME/.config/dcc}"
 CONFIG_DIR="$(cd "$CONFIG_DIR" && pwd)"
 export DCC_CONFIG_DIR="$CONFIG_DIR"
 # shellcheck source=lib/log.sh

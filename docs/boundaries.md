@@ -21,7 +21,7 @@
 ## 設計原則
 
 1. **秘密情報は選んだものだけ渡す。** `aws` / `gpg` / `ssh` / `gh` / `claude` はモジュール化されており、`dcc --creds` で明示しない限りマウントされない（[credentials.md](credentials.md)）
-2. **特権と秘密情報を同居させない。** `privileged: true` を持つ Docker sidecar には秘密情報を一切渡さない。渡し先は本体か、`aws-credentials` / `gpg-signer` のような非特権のモジュール sidecar だけ。本体は非特権（`claude` uid 1000、ただし sudo NOPASSWD）
+2. **特権と秘密情報を同居させない。** `privileged: true` を持つ Docker sidecar には秘密情報を一切渡さない。渡し先は本体か、`aws-credentials` / `gpg-signer` のような非特権のモジュール sidecar だけ。本体は非特権（ユーザー `agent` uid 1000、ただし sudo NOPASSWD）
 3. **鍵を取りに行くのは本体ではなく sidecar。** 署名（gpg）と AWS は代行実行で、本体が受け取るのは署名結果と有効期限付きの一時 credential だけ
 4. **長期鍵をコンテナに持ち込まない。** ホストの `~/.ssh`、`~/.aws/credentials`、`~/.gnupg` の秘密鍵、Keychain の token は渡さない。渡すのはコンテナ専用に作った鍵 / token（`ssh` / `gh`）で、権限を絞る
 5. **read-only が原則。** 書き込みが必要なもの（`~/.claude`、`~/.config/gh`、ワークスペース）だけ rw にする
@@ -56,12 +56,12 @@
 | 常時 | volume `dcc-claude-home`（`DCC_CLAUDE_HOME_VOLUME`、external、全ワークスペース共有、空で始まる） | `~/.claude` | rw | volume | [claude-code.md](claude-code.md)。`claude` モジュールが同じ target を bind で上書きする |
 | `claude` | `~/.claude`（`DCC_CLAUDE_DIR`） | `~/.claude` | **rw** | bind | [claude-code.md](claude-code.md) |
 | `claude` | `~/.claude.json`（`DCC_CLAUDE_JSON`） | `~/.claude.json.host` | ro | bind | [claude-code.md](claude-code.md)。postCreate でローカルへコピー |
-| 常時 | `<repo>/lifecycle_hooks/` | `/usr/local/lib/claude-devcontainer/hooks` | ro | bind | [architecture.md](architecture.md) |
+| 常時 | `<repo>/lifecycle_hooks/` | `/usr/local/lib/dcc/hooks` | ro | bind | [architecture.md](architecture.md) |
 | 常時 | volume `docker-certs` | `/certs` | ro | volume | [docker.md](docker.md)。sidecar が生成した TLS 証明書 |
 | `aws` | なし（`aws-credentials` sidecar が `127.0.0.1:8080` で一時 credential を発行） | 環境変数 `AWS_CONTAINER_CREDENTIALS_FULL_URI` のみ | — | — | [aws.md](aws.md) |
 | `gpg` | なし（`gpg-signer` sidecar が `127.0.0.1:8081` で署名 API を提供） | 環境変数 `DCC_GPG_SIGN_URI` と wrapper のみ | — | — | [gpg.md](gpg.md) |
 | `gpg` | `<repo>/capabilities/gpg/gnupg-host` | `~/.gnupg-host` | ro | bind | [gpg.md](gpg.md)。export した公開鍵・ownertrust（検証用） |
-| `gpg` | `<repo>/capabilities/gpg/gpg-sign-client.sh` | `/usr/local/lib/claude-devcontainer/gpg-sign-client.sh` | ro | bind | [gpg.md](gpg.md)。`gpg.program` wrapper |
+| `gpg` | `<repo>/capabilities/gpg/gpg-sign-client.sh` | `/usr/local/lib/dcc/gpg-sign-client.sh` | ro | bind | [gpg.md](gpg.md)。`gpg.program` wrapper |
 | `ssh` | `<repo>/capabilities/ssh/data` | `~/.ssh` | ro | bind | [ssh.md](ssh.md)。コンテナ専用の秘密鍵のみ |
 | `ssh` | `<repo>/capabilities/ssh/config` | `/etc/ssh/ssh_config.d/github.conf` | ro | bind | [ssh.md](ssh.md)。追跡対象 |
 | `ssh` | `<repo>/capabilities/ssh/known_hosts` | `/etc/ssh/ssh_known_hosts` | ro | bind | [ssh.md](ssh.md)。追跡対象 |
@@ -100,7 +100,7 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
 
 ## uid の扱い
 
-- 本体コンテナのユーザーは `claude`（uid 1000。`DCC_USER` / `DCC_UID` で変更可）。macOS ホストでは Docker Desktop / Rancher Desktop などの VM を経由するため、bind mount 上のファイルはコンテナから基本的に読み書きできる
+- 本体コンテナのユーザーは `agent`（uid 1000。`DCC_USER` / `DCC_UID` で変更可）。macOS ホストでは Docker Desktop / Rancher Desktop などの VM を経由するため、bind mount 上のファイルはコンテナから基本的に読み書きできる
 - git は所有者 uid の不一致を `dubious ownership` として拒否するので、postCreate でワークスペースを `safe.directory` に登録する（[git.md](git.md)）
 - sidecar の dockerd も uid 1000 で動く。inner container 内の root は userns 内の root で、ワークスペース上のファイルは uid 1000 として書かれる
 
@@ -124,6 +124,6 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
   書き換えられる点にも注意する
 - **本体に渡した credential の利用。** 代行実行でも「署名させる」「一時 credential を取る」こと自体は本体から自由にできる。
   専用の鍵 / token（`ssh` / `gh`）は読み出せる。被害の上限は各ページの「侵害時に漏れるもの」のとおり
-- **本体コンテナ内の権限。** `claude` ユーザーは sudo NOPASSWD で、本体コンテナ内では root 相当。境界はコンテナの外枠
+- **本体コンテナ内の権限。** コンテナユーザー（`agent`）は sudo NOPASSWD で、本体コンテナ内では root 相当。境界はコンテナの外枠
   （非特権、ホストの Docker socket なし、選んだマウントだけ）で引いている
 - **Claude Code の権限設定。** permissions / hooks / sandbox はホスト側の設定の領域で、このリポジトリでは扱わない

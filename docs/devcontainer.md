@@ -22,17 +22,17 @@ devcontainer からはワークスペース側の compose ファイルで同じ 
 ## 設定例
 
 ワークスペースに 2 ファイル置く。`<repo>` はこのリポジトリ（デフォルト
-`~/.config/devcontainer/claude`）。
+`~/.config/dcc`）。
 
 ### `.devcontainer/compose.yml`
 
-ワークスペースの bind。本体（`claude`）と Docker sidecar（`docker`）の**両方**に、同一パスで bind する
+ワークスペースの bind。本体（`agent`）と Docker sidecar（`docker`）の**両方**に、同一パスで bind する
 （`docker run -v /workspaces/<name>/x:/x` の bind を解決するのは sidecar の dockerd だから）。
 `<name>` は `devcontainer.json` の `workspaceFolder` と揃える。
 
 ```yaml
 services:
-  claude:
+  agent:
     volumes:
       - type: bind
         source: ..
@@ -53,16 +53,16 @@ services:
   "name": "Claude Code",
   "dockerComposeFile": [
     "compose.yml",
-    "${localEnv:HOME}/.config/devcontainer/claude/docker-compose.yml",
-    "${localEnv:HOME}/.config/devcontainer/claude/capabilities/gpg/compose.yml",
-    "${localEnv:HOME}/.config/devcontainer/claude/capabilities/ssh/compose.yml"
+    "${localEnv:HOME}/.config/dcc/docker-compose.yml",
+    "${localEnv:HOME}/.config/dcc/capabilities/gpg/compose.yml",
+    "${localEnv:HOME}/.config/dcc/capabilities/ssh/compose.yml"
   ],
-  "service": "claude",
-  "remoteUser": "claude",
+  "service": "agent",
+  "remoteUser": "agent",
   "workspaceFolder": "/workspaces/<name>",
   "shutdownAction": "stopCompose",
-  "initializeCommand": "${localEnv:HOME}/.config/devcontainer/claude/lifecycle_hooks/initialize.sh gpg ssh",
-  "postCreateCommand": "bash /usr/local/lib/claude-devcontainer/hooks/postCreate.sh"
+  "initializeCommand": "${localEnv:HOME}/.config/dcc/lifecycle_hooks/initialize.sh gpg ssh",
+  "postCreateCommand": "bash /usr/local/lib/dcc/hooks/postCreate.sh"
 }
 ```
 
@@ -74,7 +74,7 @@ services:
   `initializeCommand` の引数にも書く（ホスト側の前処理と事前チェック）
 - `${localEnv:HOME}` は devcontainer CLI が置換する。リポジトリを別の場所に clone した場合はパスを
   変え、compose が同じ場所を見るようにシェルで `DCC_CONFIG_DIR` を export する
-  （compose ファイル内の既定値は `~/.config/devcontainer/claude`）
+  （compose ファイル内の既定値は `~/.config/dcc`）
 - 利用者ごとの設定（`DCC_*`。[customization.md](customization.md)）は**シェルの環境変数**で渡す。
   `dcc` が読む `${DCC_CONFIG_DIR}/.env` は、project directory がワークスペース側になるため compose からも
   読まれない。`DCC_COMPOSE_FILES` 相当は `dockerComposeFile` に自分の overlay を並べればよい。
@@ -83,7 +83,7 @@ services:
 - `local/Dockerfile`（[customization.md](customization.md)）は `dcc` を通らないと自動検出されない。使うなら
   シェルで `DCC_BUILD_CONTEXT=<repo>/local` と `DCC_DOCKERFILE=<repo>/local/Dockerfile` を export し、
   `FROM` 先の base を先に作る（`dcc build` を一度実行するか、次を実行する）:
-  `docker compose -f <repo>/docker-compose.yml -f <repo>/docker-compose.base-image.yml build claude`
+  `docker compose -f <repo>/docker-compose.yml -f <repo>/docker-compose.base-image.yml build agent`
 - `postCreateCommand` は `dcc` が使うものと同じスクリプト。`~/.claude.json` のコピー、
   `safe.directory` の登録、`claude update`、`gpg` 有効時の検証用 keyring 構築を行う
 
@@ -108,8 +108,8 @@ services:
 
 ```bash
 cd <workspace>
-~/.config/devcontainer/claude/capabilities/gpg/warm.sh          # カレントのワークスペースから sidecar を探す
-~/.config/devcontainer/claude/capabilities/gpg/warm.sh -p <project>  # compose プロジェクト名で指定
+~/.config/dcc/capabilities/gpg/warm.sh          # カレントのワークスペースから sidecar を探す
+~/.config/dcc/capabilities/gpg/warm.sh -p <project>  # compose プロジェクト名で指定
 ```
 
 未 warm のまま `git commit -S` すると、wrapper が sidecar の 503 を表示して失敗する（hang はしない）。
