@@ -1,0 +1,29 @@
+services:
+  aws-credentials:
+    build:
+      context: "${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/aws"
+    environment:
+      AWS_PROFILE: "${DCC_AWS_PROFILE:-${AWS_PROFILE:-default}}"
+      AWS_REGION: "${DCC_AWS_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}}"
+      BIND_PORT: "${DCC_AWS_CREDENTIALS_PORT:-8080}"
+    image: "claude-devcontainer-aws-credentials:local"
+    network_mode: "service:docker"
+    volumes:
+      - read_only: true
+        source: "${DCC_AWS_DIR:-${HOME}/.aws}/config"
+        target: "/root/.aws/config"
+        type: "bind"
+      - read_only: true
+        source: "${DCC_AWS_DIR:-${HOME}/.aws}/login/cache"
+        target: "/root/.aws/login/cache"
+        type: "bind"
+  claude:
+    depends_on:
+      aws-credentials:
+        condition: "service_started"
+    environment:
+      AWS_CONTAINER_CREDENTIALS_FULL_URI: "http://127.0.0.1:${DCC_AWS_CREDENTIALS_PORT:-8080}/credentials"
+      AWS_REGION: "${DCC_AWS_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}}"
+    labels:
+      dcc.aws-profile: "${DCC_AWS_PROFILE:-${AWS_PROFILE:-default}}"
+

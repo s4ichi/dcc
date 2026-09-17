@@ -1,0 +1,7 @@
+services:
+  claude:
+    build:
+      context: "${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}"
+      dockerfile: "Dockerfile"
+    image: "${DCC_BASE_IMAGE:-claude-devcontainer:base}"
+

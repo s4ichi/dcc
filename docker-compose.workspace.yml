@@ -1,0 +1,16 @@
+services:
+  claude:
+    labels:
+      dcc.workspace: "${LOCAL_WORKSPACE_FOLDER:?run via dcc}"
+    volumes:
+      - consistency: "cached"
+        source: "${LOCAL_WORKSPACE_FOLDER:?run via dcc}"
+        target: "/workspaces/${LOCAL_WORKSPACE_BASENAME:?run via dcc}"
+        type: "bind"
+  docker:
+    volumes:
+      - consistency: "cached"
+        source: "${LOCAL_WORKSPACE_FOLDER:?run via dcc}"
+        target: "/workspaces/${LOCAL_WORKSPACE_BASENAME:?run via dcc}"
+        type: "bind"
+

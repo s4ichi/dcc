@@ -1,0 +1,11 @@
+services:
+  claude:
+    volumes:
+      - source: "${DCC_CLAUDE_DIR:-${HOME}/.claude}"
+        target: "/home/${DCC_USER:-claude}/.claude"
+        type: "bind"
+      - read_only: true
+        source: "${DCC_CLAUDE_JSON:-${HOME}/.claude.json}"
+        target: "/home/${DCC_USER:-claude}/.claude.json.host"
+        type: "bind"
+

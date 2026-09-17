@@ -1,0 +1,6 @@
+/capabilities/ssh/data
+/capabilities/gh/data
+/capabilities/gpg/gnupg-host
+/.env
+/local/
+/.claude/

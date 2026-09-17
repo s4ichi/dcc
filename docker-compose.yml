@@ -1,0 +1,69 @@
+services:
+  claude:
+    build:
+      args:
+        BASE_IMAGE: "${DCC_BASE_IMAGE:-claude-devcontainer:base}"
+        GO_VERSION: "${DCC_GO_VERSION:-1.26.3}"
+        USERNAME: "${DCC_USER:-claude}"
+        USER_GID: "${DCC_GID:-${DCC_UID:-1000}}"
+        USER_UID: "${DCC_UID:-1000}"
+      context: "${DCC_BUILD_CONTEXT:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}}"
+      dockerfile: "${DCC_DOCKERFILE:-Dockerfile}"
+    command:
+      - "sleep"
+      - "infinity"
+    depends_on:
+      docker:
+        condition: "service_started"
+    env_file:
+      - path: "${DCC_CONTAINER_ENV_FILE:-/dev/null}"
+        required: false
+    environment:
+      DCC_CREDS: "${DCC_CREDS-}"
+      DOCKER_CERT_PATH: "/certs/client"
+      DOCKER_HOST: "tcp://docker:2376"
+      DOCKER_TLS_VERIFY: "1"
+      HOST_HOME: "${HOME}"
+      TZ: "${DCC_TZ:-${TZ:-UTC}}"
+    image: "${DCC_IMAGE:-claude-devcontainer:local}"
+    init: true
+    labels:
+      dcc.credentials: "${DCC_CREDS-}"
+    network_mode: "service:docker"
+    volumes:
+      - read_only: true
+        source: "${DCC_GITCONFIG:-${HOME}/.gitconfig}"
+        target: "/home/${DCC_USER:-claude}/.gitconfig"
+        type: "bind"
+      - source: "claude-home"
+        target: "/home/${DCC_USER:-claude}/.claude"
+        type: "volume"
+      - read_only: true
+        source: "docker-certs"
+        target: "/certs"
+        type: "volume"
+      - read_only: true
+        source: "${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/lifecycle_hooks"
+        target: "/usr/local/lib/claude-devcontainer/hooks"
+        type: "bind"
+  docker:
+    environment:
+      DOCKER_TLS_CERTDIR: "/certs"
+    image: "${DCC_DIND_IMAGE:-docker:dind-rootless}"
+    privileged: true
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    volumes:
+      - source: "docker-certs"
+        target: "/certs"
+        type: "volume"
+      - source: "docker-data"
+        target: "/home/rootless/.local/share/docker"
+        type: "volume"
+volumes:
+  claude-home:
+    external: true
+    name: "${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}"
+  docker-certs: {}
+  docker-data: {}
+

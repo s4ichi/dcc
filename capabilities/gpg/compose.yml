@@ -1,0 +1,36 @@
+services:
+  claude:
+    depends_on:
+      gpg-signer:
+        condition: "service_started"
+    environment:
+      DCC_GPG_SIGN_URI: "http://127.0.0.1:${DCC_GPG_SIGNER_PORT:-8081}/sign"
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: "gpg.program"
+      GIT_CONFIG_VALUE_0: "/usr/local/lib/claude-devcontainer/gpg-sign-client.sh"
+    volumes:
+      - read_only: true
+        source: "${DCC_GPG_EXPORT_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/gpg/gnupg-host}"
+        target: "/home/${DCC_USER:-claude}/.gnupg-host"
+        type: "bind"
+      - read_only: true
+        source: "${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/gpg/gpg-sign-client.sh"
+        target: "/usr/local/lib/claude-devcontainer/gpg-sign-client.sh"
+        type: "bind"
+  gpg-signer:
+    build:
+      context: "${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/gpg"
+    environment:
+      BIND_PORT: "${DCC_GPG_SIGNER_PORT:-8081}"
+    image: "claude-devcontainer-gpg-signer:local"
+    network_mode: "service:docker"
+    volumes:
+      - read_only: true
+        source: "${DCC_GNUPG_DIR:-${GNUPGHOME:-${HOME}/.gnupg}}/private-keys-v1.d"
+        target: "/host-keys"
+        type: "bind"
+      - read_only: true
+        source: "${DCC_GPG_EXPORT_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/gpg/gnupg-host}"
+        target: "/gnupg-host"
+        type: "bind"
+

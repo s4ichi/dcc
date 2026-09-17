@@ -1,0 +1,7 @@
+services:
+  claude:
+    volumes:
+      - source: "${DCC_GH_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/devcontainer/claude}/capabilities/gh/data}"
+        target: "/home/${DCC_USER:-claude}/.config/gh"
+        type: "bind"
+

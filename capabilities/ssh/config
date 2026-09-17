@@ -1,0 +1,9 @@
+# ssh モジュールの接続設定。/etc/ssh/ssh_config.d/github.conf に ro で bind される。
+# 用途は GitHub への接続のみ。鍵は ./capabilities/ssh/data (gitignore 済み) に
+# id_ed25519 として置き、コンテナでは ~/.ssh に ro で bind される。
+# ホスト鍵は ./capabilities/ssh/known_hosts (/etc/ssh/ssh_known_hosts) で固定するため、
+# 初回接続の確認プロンプトは出ず、~/.ssh に書き込みも発生しない。
+Host github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes

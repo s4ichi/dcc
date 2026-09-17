@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# dcc: docker compose の薄いラッパー。ワークスペースごとに claude 本体 + docker sidecar を管理する。
+# 使い方は `dcc help` と README.md、仕様は docs/architecture.md。
+#
+# 本体は lib/*.sh (すべて DCC_CONFIG_DIR 基準で探す。compose ファイルと同じ場所):
+#   log.sh      出力の形式 (▸ / ! / ✓)、外部コマンドの実行と失敗時のダンプ
+#   config.sh   .env の読み込み、既定値、DCC_CONTAINER_ENV_*
+#   cli.sh      引数、ワークスペースとプロジェクト名、ヘッダーと usage
+#   creds.sh    credential モジュールの解決と drift 検査
+#   docker.sh   docker / compose の状態を読む (変更しない)
+#   project.sh  compose プロジェクトを変える (build / up / stop / down …)
+#   all.sh      全ワークスペース横断
+# 実行の流れは main のとおり。トップレベルで実行するのは末尾の main だけで、source すると
+# 関数定義だけが読まれる (テスト用)。
+set -euo pipefail
+
+# このリポジトリの場所。$0 からは辿らない (dcc は PATH 上に symlink / コピーで置かれうる)
+CONFIG_DIR="${DCC_CONFIG_DIR:-$HOME/.config/devcontainer/claude}"
+CONFIG_DIR="$(cd "$CONFIG_DIR" && pwd)"
+export DCC_CONFIG_DIR="$CONFIG_DIR"
+# shellcheck source=lib/log.sh
+. "$CONFIG_DIR/lib/log.sh"
+# shellcheck source=lib/config.sh
+. "$CONFIG_DIR/lib/config.sh"
+# shellcheck source=lib/cli.sh
+. "$CONFIG_DIR/lib/cli.sh"
+# shellcheck source=lib/creds.sh
+. "$CONFIG_DIR/lib/creds.sh"
+# shellcheck source=lib/docker.sh
+. "$CONFIG_DIR/lib/docker.sh"
+# shellcheck source=lib/project.sh
+. "$CONFIG_DIR/lib/project.sh"
+# shellcheck source=lib/all.sh
+. "$CONFIG_DIR/lib/all.sh"
+
+main() {
+  load_config
+  parse_args "$@"
+  resolve_workspace
+  set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+  # これらのコマンドは、フラグが無ければ既存コンテナの選択を引き継ぐ (--adopt)。他は選択を使わない
+  case "$COMMAND" in
+    default|exec|up|recreate|creds) resolve_creds --adopt ;;
+    *) resolve_creds ;;
+  esac
+
+  case "$COMMAND" in
+    default|exec|up|recreate|build) print_header ;;
+  esac
+
+  case "$COMMAND" in
+    default|exec)
+      up_container
+      warm_gpg
+      exec_claude "$@"
+      ;;
+    up)
+      up_container
+      done_step ready "${SECONDS}s"
+      ;;
+    recreate)
+      clear_containers
+      up_container
+      warm_gpg
+      done_step ready "${SECONDS}s"
+      ;;
+    stop)
+      if [ "$ALL" -eq 1 ]; then for_each_project stop_containers; else stop_containers; fi
+      ;;
+    clear|rm)
+      if [ "$ALL" -eq 1 ]; then for_each_project -a clear_containers "$@"; else clear_containers "$@"; fi
+      ;;
+    build)
+      build_image "$@"
+      ;;
+    creds)
+      show_creds
+      ;;
+    list|ls)
+      list_containers
+      ;;
+    inspect)
+      inspect_containers
+      ;;
+    help|-h|--help)
+      usage
+      ;;
+    *)
+      echo "unknown command: $COMMAND" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
