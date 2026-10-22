@@ -140,7 +140,7 @@ local/Dockerfile  ──build──► dcc:local  (DCC_IMAGE) ← 本体コン�
 
 ### base イメージの中身を減らしたいとき
 
-このリポジトリの `Dockerfile` には Claude Code と Codex CLI のほか、Go / AWS CLI / `gh` / `yq` / `duckdb` / `uv` / `jsonnet` などが入っている
+このリポジトリの `Dockerfile` には Claude Code と Codex CLI のほか、Go / AWS CLI / `gh` / `yq` / `duckdb` / `uv` / `jsonnet` / Node.js / Java（Corretto） / `d2` などが入っている
 （[architecture.md](architecture.md) の「本体イメージ」）。足すのは `local/Dockerfile` で済むが、減らす仕組みは無い。
 不要なレイヤがあるなら fork して `Dockerfile` を編集する。Docker CLI（sidecar への接続）、git / gnupg / curl / jq
 （`gpg` モジュールの wrapper が使う）、sudo（postCreate が使う）は外さないこと。

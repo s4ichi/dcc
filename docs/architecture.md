@@ -129,6 +129,12 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 `debian:bookworm-slim` に以下をレイヤで積む。devcontainer features は使わない（feature の
 インストール失敗を避けるため、すべて Dockerfile に焼き込む）。
 
+GitHub Releases などから取るツールの版は、各レイヤ直前の `ARG`（`YQ_VERSION` / `DUCKDB_VERSION` /
+`JSONNET_VERSION` / `AWSCLI_VERSION` / `UV_VERSION` / `CODEX_VERSION` / `VOLTA_VERSION` / `NODE_VERSION` /
+`D2_VERSION`）の既定値で固定し、`latest` は取らない（同じ Dockerfile なら build のたびに同じ版になる）。
+上げるときは既定値を書き換える。apt で入れるもの（Docker CLI / `gh` / Corretto / Debian のパッケージ）と、
+postCreate で更新する Claude Code は固定しない。
+
 | Layer | 内容 |
 |---|---|
 | 1 | APT lean 設定（recommends/suggests/doc/man/locale を除外）、基本パッケージ、コンテナユーザー（既定 `agent`）作成（uid/gid 1000、sudo NOPASSWD） |
@@ -142,11 +148,15 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 | 9 | AWS CLI v2 |
 | 10 | `uv` / `uvx` |
 | 11 | Codex CLI（GitHub Releases の `codex-package-<target>.tar.gz` を `codex-package_SHA256SUMS` で検証して `/opt/codex` に展開し、`/usr/local/bin/codex` に symlink。`bwrap` と `rg` を同梱。Node は不要。更新はイメージの rebuild。[codex.md](codex.md)） |
+| 12 | Volta と Node.js（既定の `node` は `NODE_VERSION` の LTS）。コンテナユーザーとして `~/.volta`（`VOLTA_HOME`）に入れ、`~/.volta/bin` を `PATH` に通す。版の追加・切り替えは `volta install node@<ver>`、プロジェクトの `package.json` の `volta.node` があればそちらに従う。コンテナ内での追加はコンテナ層に載るので recreate で消える |
+| 13 | headless Chromium の実行に要る共有ライブラリとフォント（Liberation / Noto CJK / Noto Color Emoji）。ブラウザ本体は入れない（Playwright などがライブラリの版に合うビルドを `~/.cache` に取得する） |
+| 14 | Java（Amazon Corretto 21 LTS。Corretto の apt リポジトリから） |
+| 15 | `d2`（配布バイナリ） |
 
 基本パッケージには git / git-lfs / gnupg / pinentry-curses / openssh-client / curl / jq / rsync /
 strace / gcc / g++ / make / python3 / pip / venv などが含まれる。
 
-`PATH` は `~/.local/bin:/usr/local/go/bin:/go/bin:$PATH`。`LANG=LC_ALL=C.UTF-8`。
+`PATH` は `~/.volta/bin:~/.local/bin:/usr/local/go/bin:/go/bin:$PATH`。`LANG=LC_ALL=C.UTF-8`。
 最終 `USER` はコンテナユーザー（既定 `agent`）、`WORKDIR` は `/workspaces`。
 
 ユーザー名 / uid / gid / Go バージョンは compose の `build.args`（`DCC_USER` / `DCC_UID` / `DCC_GID` /

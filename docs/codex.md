@@ -61,7 +61,7 @@ Codex CLI 自体は本体イメージに常に入っており、モジュール�
   `dcc exec --agent codex -- --sandbox workspace-write` のように重ねても、同じ引数が二重になることを避けられる
 - **公式の install.sh を使わず、イメージに焼き込む**: install.sh は shell profile を書き換え、本体を `~/.codex/packages/` 配下に置く。`~/.codex` は
   volume / ホストの bind になるので、実体をそこに置くとイメージと食い違う（[claude-code.md](claude-code.md) で Claude Code の実体を volume にしないのと同じ理由）。
-  GitHub Releases の `codex-package-<target>.tar.gz`（`codex` に加えて `bwrap` と `rg` を同梱）を `/opt/codex` に展開し、同じリリースの
+  GitHub Releases（`CODEX_VERSION` のタグ）の `codex-package-<target>.tar.gz`（`codex` に加えて `bwrap` と `rg` を同梱）を `/opt/codex` に展開し、同じリリースの
   `codex-package_SHA256SUMS` で検証する。Node.js は要らない
 - **起動時の更新チェックを切る**: 実体は root 所有の `/opt/codex` にあり、コンテナ内からの自己更新は想定しない。更新はイメージの rebuild で行う
 
@@ -122,8 +122,8 @@ export DCC_AGENT=codex                  # 既定のエージェントを codex �
 
 設定は `config.toml` の `[mcp_servers.<name>]`、または `codex mcp add`。remote サーバーの OAuth は `codex mcp login <name> --no-browser` を使う
 （認可 URL を表示し、ブラウザでの認可後にリダイレクトされた URL を貼り付ける方式。callback のポートをホストに公開しなくてよい）。
-token は keyring の無いコンテナでは `~/.codex/.credentials.json` に平文で残る。stdio サーバーの実行コマンドが**コンテナ内**に必要なこと、
-Node.js が入っていないことは [mcp.md](mcp.md) の「stdio サーバー」と同じ。
+token は keyring の無いコンテナでは `~/.codex/.credentials.json` に平文で残る。stdio サーバーの実行コマンドが**コンテナ内**に必要なことは
+[mcp.md](mcp.md) の「stdio サーバー」と同じ。
 
 ### 環境変数
 
@@ -153,8 +153,8 @@ Codex が実行する `docker` / `git` / `aws` からそのまま見える。`co
 - `codex resume` / `codex fork` は既定で作業ディレクトリが同じセッションだけを対象にする。ホストでは `/Users/<user>/src/foo`、コンテナでは
   `/workspaces/foo` になるので、共有していても互いのセッションは既定の一覧に出ない（`--all` で出る）
 - プロジェクトを信頼するかの判定（trust）も `config.toml` にパスで記録される。コンテナのパスはホストと違うので、コンテナ側で改めて聞かれる
-- 更新はイメージの rebuild（`dcc build --no-cache` → `dcc recreate`）。`latest` の URL は変わらないので、`--no-cache` を付けないと Docker の
-  レイヤキャッシュで古い版のままになる。起動時の更新通知は既定引数で切ってある
+- 版は `Dockerfile` の `CODEX_VERSION`（リリースのタグ）で固定している。更新はこの値を上げて `dcc build` → `dcc recreate`。
+  起動時の更新通知は既定引数で切ってある
 - `/opt/codex` は約 260 MB あり、Codex を使わない場合もイメージに含まれる
 - 複数の `dcc exec --agent codex` を同じコンテナで同時に動かすと、Codex の共有バックグラウンドサーバーを共有する。切り離すなら `--no-daemon`
 - Codex は既定で利用状況のメトリクスを送信する。止めるなら `config.toml` に `[analytics] enabled = false`

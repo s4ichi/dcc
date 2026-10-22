@@ -72,7 +72,7 @@ MCP サーバーは「どのサーバーに繋ぐか（設定）」と「その�
 
 ### stdio サーバー
 
-- 実行コマンドが**コンテナ内**に必要。イメージには `uvx` / `python3` / `docker` / `go` はあるが、**`node` / `npx` は入っていない**。`npx -y @xxx/mcp-server` 型は `/mcp` に `failed` と出る。使うなら `local/Dockerfile` で Node.js を足す（[customization.md](customization.md)）
+- 実行コマンドが**コンテナ内**に必要。イメージには `uvx` / `python3` / `node` / `npx` / `docker` / `go` がある。それ以外のランタイムが要るサーバーは `/mcp` に `failed` と出る。使うなら `local/Dockerfile` で足す（[customization.md](customization.md)）
 - `docker run -i ...` 型は sidecar の rootless dockerd で動く（[docker.md](docker.md)）。`-v` で bind できるのはワークスペース配下だけ。inner container から親 netns の `127.0.0.1` には届かない。cgroup のリソース制限は無視される
 - ホストのファイルやソケット（`~/.aws`、`/var/run/docker.sock` 等）に依存するサーバーは動かない。credential モジュールで渡しているものだけが使える
 
@@ -90,5 +90,4 @@ MCP サーバーは「どのサーバーに繋ぐか（設定）」と「その�
 - Keychain の橋渡しは今後も対応しない（意図的）
 - コンテナ内で user / local scope に追加した設定は recreate で消える（`~/.claude.json` がコンテナローカルのため）。project scope で回避する
 - remote サーバーへの通信は sidecar と共有する netns から外に出る。ホストのプロキシや VPN 依存の到達性は Docker ランタイム次第
-- `node` が無いのは意図的（イメージを小さく保つ）
 - `.mcp.json` をワークスペースに commit する場合、`url` / `headers` に token や内部ホスト名を直書きしない
