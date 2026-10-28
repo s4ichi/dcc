@@ -72,3 +72,16 @@ setup_gnupg() {
   fi
 }
 setup_gnupg
+
+# gh モジュール有効時: git の https 認証を gh-token sidecar の短命 token にする。
+# gh auth setup-git は ~/.gitconfig (ro) に書こうとして失敗するので、system に登録する
+setup_gh_credential() {
+  local client=/usr/local/lib/dcc/gh-token-client.sh
+  local host="${DCC_GH_HOST:-github.com}"
+
+  [ -x "$client" ] || return 0
+
+  sudo git config --system --replace-all "credential.https://${host}.helper" "!${client} git-credential"
+  echo "gh: token served by gh-token sidecar (gh and git over https://${host})"
+}
+setup_gh_credential

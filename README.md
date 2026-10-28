@@ -2,7 +2,7 @@
 
 > Run Claude Code or OpenAI Codex CLI inside a Docker Compose sandbox. The host's secrets (AWS, GPG, SSH,
 > GitHub, `~/.claude`, `~/.codex`) are opt-in per module, Docker is provided by a rootless sidecar instead of
-> the host socket, and signing / AWS credentials are brokered by sidecars so that long-lived keys never enter
+> the host socket, and signing / AWS / GitHub credentials are brokered by sidecars so that long-lived keys never enter
 > the container. Documentation is written in Japanese.
 
 `dcc` は、任意のディレクトリで [Claude Code](https://claude.com/claude-code) や [Codex CLI](https://github.com/openai/codex) を
@@ -23,8 +23,8 @@ dcc --creds gpg,ssh     # 署名と GitHub への SSH だけを渡して起動
 
 - **秘密情報は選んだものだけ渡す。** `aws` / `gpg` / `ssh` / `gh` / `claude` / `codex` はモジュールになっていて、
   `--creds` で明示しない限り何もマウントされない
-- **長期鍵をコンテナに持ち込まない。** GPG 署名と AWS は sidecar が代行し、本体が受け取るのは署名結果と
-  有効期限付きの一時 credential だけ。SSH と `gh` にはコンテナ専用に作った鍵 / token を渡す
+- **長期鍵をコンテナに持ち込まない。** GPG 署名、AWS、GitHub（`gh`）は sidecar が代行し、本体が受け取るのは署名結果と
+  有効期限付きの一時 credential / access token だけ。SSH にはコンテナ専用に作った鍵を渡す
 - **ホストの Docker を渡さない。** コンテナ内の `docker` は rootless な dind sidecar に繋がる。
   `docker run --privileged -v /:/host` をされても、届くのは sidecar の中まで
 - **特権と秘密情報を同居させない。** `privileged` が付くのは秘密情報を一切持たない Docker sidecar だけ
@@ -42,6 +42,7 @@ dcc --creds gpg,ssh     # 署名と GitHub への SSH だけを渡して起動
   --creds で選んだときだけ:    │          ▼                                                   │
   ~/.gnupg の署名鍵 ─ ro ───► │  gpg-signer（commit / tag への署名だけを代行）               │
   ~/.aws の login ── ro ────► │  aws-credentials（一時 credential だけを発行）               │
+  dcc gh-login ─► volume ───► │  gh-token（数時間で失効する access token だけを発行）        │
                               └────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,6 +94,7 @@ dcc [command] [workspace] [options] [args...]
 | `dcc recreate` | 削除して作り直す。compose や credential の変更を反映するときに使う |
 | `dcc build [opts]` | イメージを build する（例: `dcc build --no-cache`）。反映には `dcc recreate` |
 | `dcc creds` | モジュールの一覧と、このワークスペースの現在の選択を表示 |
+| `dcc gh-login [args]` | `gh` モジュールの token を用意する（`gh auth login --expiring`。全ワークスペース共有） |
 | `dcc list` / `dcc inspect` | 全ワークスペースのコンテナを一覧 / 詳細表示 |
 
 実行するエージェントは `--agent claude|codex`（既定は `DCC_AGENT`、無ければ `claude`）で選ぶ。両方とも同じコンテナに
@@ -118,7 +120,7 @@ export DCC_CREDS=gpg,ssh     # 新規作成時の既定値
 | `gpg` | commit / tag への署名 | **代行**。秘密鍵は `gpg-signer` sidecar だけが持つ | ホストで `user.signingkey` を設定 | [docs/gpg.md](docs/gpg.md) |
 | `aws` | ホストで login 済みの 1 profile の一時 credential の取得 | **代行**。`aws-credentials` sidecar が発行する | ホストで `aws login` | [docs/aws.md](docs/aws.md) |
 | `ssh` | GitHub への SSH 接続 | コンテナ専用の鍵を ro で渡す | `capabilities/ssh/data/` に専用鍵を作る | [docs/ssh.md](docs/ssh.md) |
-| `gh` | `gh` による GitHub API 操作 | コンテナ専用の token を渡す | `capabilities/gh/data/` を作り、コンテナ内で `gh auth login` | [docs/github.md](docs/github.md) |
+| `gh` | `gh` による GitHub API 操作と HTTPS の git | **代行**。refresh token は `gh-token` sidecar だけが持ち、本体は短命の access token を毎回受け取る | ホストで `dcc gh-login` | [docs/github.md](docs/github.md) |
 | `claude` | ホストと同じ Claude Code の設定・履歴・プラグインで動く | ホストの `~/.claude` を **rw 共有** | なし | [docs/claude-code.md](docs/claude-code.md) |
 | `codex` | ホストと同じ Codex の設定・履歴・**認証**で動く | ホストの `~/.codex` を **rw 共有** | なし | [docs/codex.md](docs/codex.md) |
 
@@ -132,7 +134,8 @@ export DCC_CREDS=gpg,ssh     # 新規作成時の既定値
 |---|---|
 | `gpg` | commit / tag に署名させられる。鍵とパスフレーズは漏れない |
 | `aws` | 有効期限付きの一時 credential。長期鍵と login セッションは漏れない |
-| `ssh` / `gh` | コンテナ専用の鍵 / token が漏れる。被害はそれに与えた権限の範囲で、GitHub 側で失効できる |
+| `ssh` | コンテナ専用の鍵が漏れる。被害はそれに与えた権限の範囲で、GitHub 側で失効できる |
+| `gh` | 数時間で失効する access token。refresh token は漏れない |
 | `claude` | 有効時は**ホストの Claude Code の設定の改変、token と履歴の持ち出し**（最大の穴。必要なワークスペースでだけ有効にする）。無効時は volume 内の token と履歴だけ |
 | `codex` | 有効時は**ホストの Codex の token の持ち出しと設定の改変**（`auth.json` は平文のファイルで、`notify` や hooks を書き換えられるとホストでコマンドが走る。`claude` より重い）。無効時は volume 内の token と履歴だけ |
 | Docker | sidecar 内の uid 1000 の権限。ホストの Docker とワークスペース以外のファイルには届かない |

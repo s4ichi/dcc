@@ -94,7 +94,12 @@ local gpgSignClient = '/usr/local/lib/dcc/gpg-sign-client.sh';
 local sshDir = '${DCC_SSH_DIR:-' + configDir + '/capabilities/ssh/data}';
 local sshConfig = '${DCC_SSH_CONFIG:-' + configDir + '/capabilities/ssh/config}';
 local sshKnownHosts = '${DCC_SSH_KNOWN_HOSTS:-' + configDir + '/capabilities/ssh/known_hosts}';
-local ghDir = '${DCC_GH_DIR:-' + configDir + '/capabilities/gh/data}';
+// gh の状態 (refresh token) は全ワークスペースの gh-token sidecar で共有する固定名の外部 volume に置く
+// (refresh.lock の flock を確実に効かせるため。dcc が作る)。本体には access token だけを渡す
+local ghTokenPort = '${DCC_GH_TOKEN_PORT:-8082}';
+local ghHost = '${DCC_GH_HOST:-github.com}';
+local ghHomeVolume = '${DCC_GH_HOME_VOLUME:-dcc-gh-home}';
+local ghClient = '/usr/local/lib/dcc/gh-token-client.sh';
 
 // credential モジュール。`dcc --creds <name>,...` で選んだものだけ overlay として渡る。
 // キーが capabilities/<name>/ のディレクトリ名になる。docs/credentials.md
@@ -199,14 +204,37 @@ local credModules = {
     },
   },
 
-  // コンテナ専用の gh 設定 / token。docs/github.md
+  // refresh token は gh-token sidecar にだけ存在し、本体は gh の wrapper と git の credential helper
+  // 経由で短命の access token を毎回受け取る。docs/github.md
   gh: {
     services: {
       agent: {
+        environment: {
+          DCC_GH_TOKEN_URI: 'http://127.0.0.1:' + ghTokenPort + '/token',
+          DCC_GH_HOST: ghHost,
+        },
+        depends_on: { 'gh-token': { condition: 'service_started' } },
         volumes: [
-          bind(ghDir, remoteHome + '/.config/gh'),
+          bind(configDir + '/capabilities/gh/gh-token-client.sh', ghClient, readonly=true),
+          // PATH 上で /usr/bin/gh より先に見つかる位置に wrapper として置く
+          bind(configDir + '/capabilities/gh/gh-token-client.sh', '/usr/local/bin/gh', readonly=true),
         ],
       },
+      'gh-token': {
+        image: 'dcc-gh-token:local',
+        build: { context: configDir + '/capabilities/gh' },
+        network_mode: sharedNetns,
+        environment: {
+          BIND_PORT: ghTokenPort,
+          GH_HOST: ghHost,
+        },
+        volumes: [
+          volume('gh-home', '/home/gh/.config/gh'),
+        ],
+      },
+    },
+    volumes: {
+      'gh-home': { name: ghHomeVolume, external: true },
     },
   },
 };

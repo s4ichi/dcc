@@ -47,7 +47,9 @@
 | `DCC_GPG_EXPORT_DIR` | `$DCC_CONFIG_DIR/capabilities/gpg/gnupg-host` | ホスト側 export の出力先 |
 | `DCC_GPG_SIGNER_PORT` | `8081` | 署名 API のポート |
 | `DCC_SSH_DIR` / `DCC_SSH_CONFIG` / `DCC_SSH_KNOWN_HOSTS` | `$DCC_CONFIG_DIR/capabilities/ssh/{data,config,known_hosts}` | `ssh` モジュールの秘密鍵置き場 / 接続設定 / ホスト鍵 |
-| `DCC_GH_DIR` | `$DCC_CONFIG_DIR/capabilities/gh/data` | `gh` モジュールの設定 / token 置き場 |
+| `DCC_GH_HOST` | `github.com` | `gh` モジュールが token を発行するホスト（GitHub Enterprise ならそのホスト名） |
+| `DCC_GH_HOME_VOLUME` | `dcc-gh-home` | `gh-token` sidecar の状態（refresh token）を置く外部 volume の名前（全ワークスペース共有。`dcc up` / `dcc gh-login` が作る） |
+| `DCC_GH_TOKEN_PORT` | `8082` | access token endpoint のポート |
 
 `DCC_BUILD_CONTEXT` / `DCC_DOCKERFILE` / `DCC_CONTAINER_ENV_FILE` と `LOCAL_WORKSPACE_FOLDER` /
 `LOCAL_WORKSPACE_BASENAME` / `COMPOSE_PROJECT_NAME` は `dcc` が compose に伝えるための内部変数で、利用者は設定しない
@@ -165,7 +167,6 @@ local/Dockerfile  ──build──► dcc:local  (DCC_IMAGE) ← 本体コン�
 | ディレクトリ | 内容 | 準備 |
 |---|---|---|
 | `capabilities/ssh/data/`（`DCC_SSH_DIR`） | コンテナ専用の SSH 秘密鍵 `id_ed25519`。接続設定とホスト鍵は追跡対象で準備不要 | [ssh.md](ssh.md) のセットアップ |
-| `capabilities/gh/data/`（`DCC_GH_DIR`） | コンテナ専用の `gh` 設定・token | [github.md](github.md) のセットアップ |
 | `capabilities/gpg/gnupg-host/`（`DCC_GPG_EXPORT_DIR`） | ホストの公開鍵・署名鍵情報の export | 不要（`initialize.sh gpg` が毎回生成する） |
 | `.env`、`local/` | 上記 | 任意。無ければ既定値と base のイメージ / compose だけで動く |
 

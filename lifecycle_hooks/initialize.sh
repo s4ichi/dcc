@@ -35,7 +35,7 @@ for module in "$@"; do
       warn_missing "${DCC_SSH_DIR:-$repo/capabilities/ssh/data}" ssh
       ;;
     gh)
-      warn_missing "${DCC_GH_DIR:-$repo/capabilities/gh/data}" gh
+      # ホスト側の前処理は無い (状態は volume にあり、初回は dcc gh-login)。docs/github.md
       ;;
     *)
       echo "warn: $module: unknown module (ignored)" >&2

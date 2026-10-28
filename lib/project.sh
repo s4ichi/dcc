@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# compose プロジェクト (COMPOSE_PROJECT_NAME) を変える関数。build / up / postCreate / gpg warm / stop / down。
+# compose プロジェクト (COMPOSE_PROJECT_NAME) を変える関数。build / up / postCreate / gpg warm / gh login / stop / down。
 
 # local/Dockerfile の FROM 先。base-image overlay で agent の image / build をこのリポジトリの Dockerfile に
 # 差し替えて `build agent` する。COMPOSE_FILES は呼び出し側が用意する。$@: docker compose build のオプション
@@ -28,6 +28,36 @@ ensure_home_volume() {
   docker volume inspect "$2" >/dev/null 2>&1 && return 0
   step volume "creating $2 for $3" "$1 module off"
   run_step volume docker volume create "$2"
+}
+
+# gh モジュールの状態 (refresh token) も固定名の外部 volume。全ワークスペースの gh-token sidecar が共有し、
+# gh の refresh.lock (flock) で refresh を直列化する。docs/github.md
+ensure_gh_volume() {
+  docker volume inspect "$GH_HOME_VOLUME" >/dev/null 2>&1 && return 0
+  step volume "creating $GH_HOME_VOLUME for gh credentials" "gh module"
+  run_step volume docker volume create "$GH_HOME_VOLUME"
+}
+
+# gh-token sidecar のイメージで gh を 1 回実行する (状態 volume を mount。ワークスペースのコンテナには依存しない)
+gh_sidecar_run() {
+  local -a tty=(-i)
+  [ -t 0 ] && [ -t 1 ] && tty+=(-t)
+  docker run --rm "${tty[@]}" -v "$GH_HOME_VOLUME:/home/gh/.config/gh" --entrypoint gh "$GH_TOKEN_IMAGE" "$@"
+}
+
+# gh-token sidecar が配る token を用意する。--expiring で短命の access token + refresh token を要求する
+# (サーバが非対応なら gh は無期限 token にフォールバックするので、最後に auth status で結果を見せる)。
+# sidecar に git は無いので git 連携の設定は飛ばす (--git-protocol ssh --skip-ssh-key)。$@: gh auth login に足す引数
+gh_login() {
+  ensure_gh_volume
+  if ! docker image inspect "$GH_TOKEN_IMAGE" >/dev/null 2>&1; then
+    step image "building $GH_TOKEN_IMAGE" "capabilities/gh/Dockerfile"
+    run_step -t image docker build -t "$GH_TOKEN_IMAGE" "$CAPABILITIES_DIR/gh"
+  fi
+  step gh "logging in to $GH_HOST" "volume $GH_HOME_VOLUME"
+  gh_sidecar_run auth login --hostname "$GH_HOST" --expiring --git-protocol ssh --skip-ssh-key "$@" \
+    || { fail gh "login failed"; exit 1; }
+  gh_sidecar_run auth status --hostname "$GH_HOST" || true
 }
 
 # 本体イメージが無ければ compose が up 時に build するが、その FROM 先の base は作られない
@@ -85,6 +115,7 @@ up_container() {
   ensure_home_volume claude "$CLAUDE_HOME_VOLUME" "~/.claude"
   # shellcheck disable=SC2088
   ensure_home_volume codex "$CODEX_HOME_VOLUME" "~/.codex"
+  if has_cred gh; then ensure_gh_volume; fi
   ensure_base_image
   local -a up_opts=(-d --no-recreate)
   if compose "${COMPOSE_FILES[@]}" config --images | xargs docker image inspect >/dev/null 2>&1; then

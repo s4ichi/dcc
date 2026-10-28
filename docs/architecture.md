@@ -32,7 +32,8 @@
 | `capabilities/claude/` | `claude` モジュールの overlay（ホストの `~/.claude` / `~/.claude.json` の bind）。[claude-code.md](claude-code.md) |
 | `capabilities/codex/` | `codex` モジュールの overlay（ホストの `~/.codex` の bind）。[codex.md](codex.md) |
 | `capabilities/aws/` | `aws` モジュールの credential sidecar のイメージ（[aws.md](aws.md)） |
-| `capabilities/ssh/data/`, `capabilities/gh/data/`, `capabilities/gpg/gnupg-host/` | gitignore 済み。コンテナへ bind するホスト側の実体（[boundaries.md](boundaries.md)） |
+| `capabilities/gh/` | `gh` モジュールの token sidecar（`server.py` が `gh auth token` の結果を返す）と本体側 client（`gh-token-client.sh`。`gh` の wrapper 兼 git の credential helper）。[github.md](github.md) |
+| `capabilities/ssh/data/`, `capabilities/gpg/gnupg-host/` | gitignore 済み。コンテナへ bind するホスト側の実体（[boundaries.md](boundaries.md)）。`capabilities/gh/data/` は旧方式の置き場で、誤コミット防止のため gitignore だけ残している |
 
 ## 設定の生成フロー
 
@@ -173,7 +174,7 @@ devcontainer の両方から同じスクリプトを呼ぶ。
 
 **`initialize.sh <module>...`（ホスト側）**: コンテナ作成 / 起動の前にホストで実行する。引数のモジュール名
 ごとに前処理と bind ソースの事前チェックを行う（`gpg`: 公開鍵 / 署名鍵情報の export、
-`aws` / `ssh` / `gh` / `claude`: ソースの存在チェック）。`dcc up` は選択したモジュール名を渡して呼び、devcontainer では
+`aws` / `ssh` / `claude` / `codex`: ソースの存在チェック。`gh` は前処理なし）。`dcc up` は選択したモジュール名を渡して呼び、devcontainer では
 `initializeCommand` に書く。
 
 **`postCreate.sh`（コンテナ側）**: `lifecycle_hooks/` を丸ごと `/usr/local/lib/dcc/hooks`
@@ -188,6 +189,7 @@ devcontainer の両方から同じスクリプトを呼ぶ。
 3. `$HOST_HOME` → `$HOME` の symlink 作成（ホストでインストールした plugin の絶対パス解決。[claude-code.md](claude-code.md)）
 4. `git config --system --add safe.directory <workspace>`（[git.md](git.md)）
 5. 検証用 keyring の構築と `gpg.program` の登録（`~/.gnupg-host` がある = `gpg` 有効時のみ。[gpg.md](gpg.md)）
+6. `credential.https://<host>.helper` に gh-token client を登録（client の mount がある = `gh` 有効時のみ。[github.md](github.md)）
 
 ## CLI
 
@@ -213,9 +215,10 @@ dcc [command] [workspace] [options] [args...]
 | コマンド | 動作 |
 |---|---|
 | `dcc`（デフォルト） | `up` → gpg warm（`gpg` 有効時） → エージェントを exec |
-| `dcc up` | `initialize.sh <選択モジュール>` → drift の検査 → （必要なら volume `dcc-claude-home` / `dcc-codex-home` の作成、base イメージの build）→ `docker compose -f base -f workspace -f <overlay>… [-f local/compose.yml] [-f $DCC_COMPOSE_FILES] up -d --no-recreate` → 未実行なら `postCreate.sh` |
+| `dcc up` | `initialize.sh <選択モジュール>` → drift の検査 → （必要なら volume `dcc-claude-home` / `dcc-codex-home` / `dcc-gh-home` の作成、base イメージの build）→ `docker compose -f base -f workspace -f <overlay>… [-f local/compose.yml] [-f $DCC_COMPOSE_FILES] up -d --no-recreate` → 未実行なら `postCreate.sh` |
 | `dcc exec [args]` | `up` → gpg warm（`capabilities/gpg/warm.sh`） → `docker compose exec -u agent -w /workspaces/<name> agent <claude\|codex> [既定引数] [args]` |
 | `dcc creds` | モジュール一覧、既定値、今回の解決結果、実行中コンテナの選択を表示 |
+| `dcc gh-login [args]` | volume `dcc-gh-home` を用意し（無ければ `dcc-gh-token:local` も build）、`docker run --rm -it -v dcc-gh-home:… dcc-gh-token:local auth login --hostname <DCC_GH_HOST> --expiring --git-protocol ssh --skip-ssh-key [args]` → `auth status`。ワークスペースのコンテナには依存しない（[github.md](github.md)） |
 | `dcc stop [--all]` | `docker compose -p <project> stop`（`--all` で全ワークスペースの全プロジェクト） |
 | `dcc clear [--all] [--volumes]` | `docker compose -p <project> down [--volumes]`。`--volumes` で sidecar の named volume も削除、`--all` で全ワークスペース |
 | `dcc recreate` | `clear` → `up`（named volume は残る） |

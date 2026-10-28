@@ -1,7 +1,34 @@
 services:
   agent:
+    depends_on:
+      gh-token:
+        condition: "service_started"
+    environment:
+      DCC_GH_HOST: "${DCC_GH_HOST:-github.com}"
+      DCC_GH_TOKEN_URI: "http://127.0.0.1:${DCC_GH_TOKEN_PORT:-8082}/token"
     volumes:
-      - source: "${DCC_GH_DIR:-${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh/data}"
-        target: "/home/${DCC_USER:-agent}/.config/gh"
+      - read_only: true
+        source: "${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh/gh-token-client.sh"
+        target: "/usr/local/lib/dcc/gh-token-client.sh"
         type: "bind"
+      - read_only: true
+        source: "${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh/gh-token-client.sh"
+        target: "/usr/local/bin/gh"
+        type: "bind"
+  gh-token:
+    build:
+      context: "${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh"
+    environment:
+      BIND_PORT: "${DCC_GH_TOKEN_PORT:-8082}"
+      GH_HOST: "${DCC_GH_HOST:-github.com}"
+    image: "dcc-gh-token:local"
+    network_mode: "service:docker"
+    volumes:
+      - source: "gh-home"
+        target: "/home/gh/.config/gh"
+        type: "volume"
+volumes:
+  gh-home:
+    external: true
+    name: "${DCC_GH_HOME_VOLUME:-dcc-gh-home}"
 

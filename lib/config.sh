@@ -78,6 +78,9 @@ load_config() {
   BASE_IMAGE="${DCC_BASE_IMAGE:-dcc:base}"
   CLAUDE_HOME_VOLUME="${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}"
   CODEX_HOME_VOLUME="${DCC_CODEX_HOME_VOLUME:-dcc-codex-home}"
+  GH_HOME_VOLUME="${DCC_GH_HOME_VOLUME:-dcc-gh-home}"
+  GH_HOST="${DCC_GH_HOST:-github.com}"
+  GH_TOKEN_IMAGE=dcc-gh-token:local
   REMOTE_USER="${DCC_USER:-agent}"
   REMOTE_HOOKS_DIR=/usr/local/lib/dcc/hooks
   POSTCREATE_MARKER="/home/$REMOTE_USER/.dcc-postcreate-done"

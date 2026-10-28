@@ -23,7 +23,7 @@ Claude Code / Codex CLI 用コンテナ設定の仕様と、ホスト ⇔ コン
 | [gpg.md](gpg.md) | GPG 署名鍵・公開鍵・パスフレーズ | `gpg` | `~/.gnupg/private-keys-v1.d` + export した公開鍵 | `gpg-signer` sidecar（本体は署名 API に委譲） |
 | [aws.md](aws.md) | AWS 認証情報 | `aws` | `~/.aws/config` + `~/.aws/login/cache`（sidecar に ro） | 一時 credential を `AWS_CONTAINER_CREDENTIALS_FULL_URI` で取得 |
 | [ssh.md](ssh.md) | SSH 鍵・known_hosts | `ssh` | `<repo>/capabilities/ssh/data/`（gitignore） | `~/.ssh` (ro) |
-| [github.md](github.md) | GitHub CLI (`gh`) の認証 | `gh` | `<repo>/capabilities/gh/data/`（gitignore） | `~/.config/gh` (rw) |
+| [github.md](github.md) | GitHub CLI (`gh`) と HTTPS git の認証（expiring token） | `gh` | volume `dcc-gh-home`（`dcc gh-login` が書く。`gh-token` sidecar に rw） | 短命の access token を `gh` の wrapper / git の credential helper で都度取得 |
 | [git.md](git.md) | gitconfig、safe.directory、署名設定 | 常時 | `~/.gitconfig` | `~/.gitconfig` (ro) + system gitconfig |
 | [claude-code.md](claude-code.md) | Claude Code の設定・セッション・プラグイン | `claude` | `~/.claude`、`~/.claude.json` | 有効時 `~/.claude` (rw)。無効時は全ワークスペース共有の空の volume |
 | [codex.md](codex.md) | Codex CLI の設定・認証・セッション、Codex 自身の sandbox の扱い | `codex` | `~/.codex`（`auth.json` = token を含む） | 有効時 `~/.codex` (rw)。無効時は全ワークスペース共有の空の volume |

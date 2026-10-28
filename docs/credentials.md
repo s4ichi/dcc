@@ -10,7 +10,7 @@
 | `aws` | 一時 credential（`~/.aws` は本体にマウントしない） | HTTP | `aws-credentials` sidecar が `~/.aws/config` / `~/.aws/login/cache` (ro) から発行 | [aws.md](aws.md) |
 | `gpg` | 署名 API（秘密鍵は `gpg-signer` sidecar のみ。本体には公開鍵と `gpg.program` wrapper だけ） | HTTP | `initialize.sh gpg` がホストで公開鍵・keygrip・署名鍵を export、起動後に `capabilities/gpg/warm.sh` で sidecar 内 pinentry を通す（`dcc` は自動） | [gpg.md](gpg.md) |
 | `ssh` | `./capabilities/ssh/data` → `~/.ssh`、`./capabilities/ssh/{config,known_hosts}` → `/etc/ssh` | ro | なし | [ssh.md](ssh.md) |
-| `gh` | `./capabilities/gh/data` → `~/.config/gh` | rw | なし | [github.md](github.md) |
+| `gh` | 短命の access token（refresh token は `gh-token` sidecar のみ。本体には `gh` の wrapper と git の credential helper だけ） | HTTP | ホストで一度 `dcc gh-login`（状態は全ワークスペース共有の volume `dcc-gh-home`。`dcc up` / `gh-login` が作る） | [github.md](github.md) |
 | `claude` | ホストの `~/.claude` → `~/.claude`、`~/.claude.json` → `~/.claude.json.host` | rw / ro | 外すと `~/.claude` は全ワークスペース共有の空の volume `dcc-claude-home` になる（`dcc up` が作る） | [claude-code.md](claude-code.md) |
 | `codex` | ホストの `~/.codex` → `~/.codex`（`auth.json` = ホストの Codex の token を含む） | rw | 外すと `~/.codex` は全ワークスペース共有の空の volume `dcc-codex-home` になる（`dcc up` が作る） | [codex.md](codex.md) |
 
@@ -35,6 +35,7 @@ Environment:
 
 Subcommand:
   dcc creds [workspace]   利用可能なモジュール / 既定値 / 今回の解決結果 / 実行中コンテナの選択を表示
+  dcc gh-login [args]     gh モジュールの token を用意する（gh auth login --expiring。github.md）
 ```
 
 例:

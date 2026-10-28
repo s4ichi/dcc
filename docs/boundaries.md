@@ -14,17 +14,17 @@
 
 | 軸 | 問い | この設計での扱い |
 |---|---|---|
-| **できること** | どの操作を許すか | 主にエージェント側の設定（Claude Code の `settings.json` の permissions / hooks、Codex の承認ポリシー）の領域で、このリポジトリでは扱わない。代行実行（gpg / aws）では sidecar 側が受け付ける操作を絞ることで実現する |
+| **できること** | どの操作を許すか | 主にエージェント側の設定（Claude Code の `settings.json` の permissions / hooks、Codex の承認ポリシー）の領域で、このリポジトリでは扱わない。代行実行（gpg / aws / gh）では sidecar 側が受け付ける操作を絞ることで実現する |
 | **届く範囲** | どのファイル・リソースに到達できるか | 本体には選んだものだけを、できるだけ ro で bind する。特権（Docker sidecar）と秘密情報は同じコンテナに置かない。inner container にはワークスペースしか見せない |
 | **鍵の渡し方** | 認証情報をどう渡すか | 可能なものは代行実行（本体は鍵を受け取らない）。そうでないものはコンテナ専用の鍵を作って権限を絞り、平文で渡す。長期鍵はコンテナに持ち込まない |
 
 ## 設計原則
 
 1. **秘密情報は選んだものだけ渡す。** `aws` / `gpg` / `ssh` / `gh` / `claude` / `codex` はモジュール化されており、`dcc --creds` で明示しない限りマウントされない（[credentials.md](credentials.md)）
-2. **特権と秘密情報を同居させない。** `privileged: true` を持つ Docker sidecar には秘密情報を一切渡さない。渡し先は本体か、`aws-credentials` / `gpg-signer` のような非特権のモジュール sidecar だけ。本体は非特権（ユーザー `agent` uid 1000、ただし sudo NOPASSWD）
-3. **鍵を取りに行くのは本体ではなく sidecar。** 署名（gpg）と AWS は代行実行で、本体が受け取るのは署名結果と有効期限付きの一時 credential だけ
-4. **長期鍵をコンテナに持ち込まない。** ホストの `~/.ssh`、`~/.aws/credentials`、`~/.gnupg` の秘密鍵、Keychain の token は渡さない。渡すのはコンテナ専用に作った鍵 / token（`ssh` / `gh`）で、権限を絞る。**例外は `codex` モジュール**で、有効にするとホストの `~/.codex/auth.json`（Codex の token。平文のファイル）がそのままコンテナに渡る。既定では渡さず、コンテナ内で別にログインする（[codex.md](codex.md)）
-5. **read-only が原則。** 書き込みが必要なもの（`~/.claude`、`~/.codex`、`~/.config/gh`、ワークスペース）だけ rw にする
+2. **特権と秘密情報を同居させない。** `privileged: true` を持つ Docker sidecar には秘密情報を一切渡さない。渡し先は本体か、`aws-credentials` / `gpg-signer` / `gh-token` のような非特権のモジュール sidecar だけ。本体は非特権（ユーザー `agent` uid 1000、ただし sudo NOPASSWD）
+3. **鍵を取りに行くのは本体ではなく sidecar。** 署名（gpg）、AWS、GitHub（gh）は代行実行で、本体が受け取るのは署名結果と有効期限付きの一時 credential / access token だけ
+4. **長期鍵をコンテナに持ち込まない。** ホストの `~/.ssh`、`~/.aws/credentials`、`~/.gnupg` の秘密鍵、Keychain の token は渡さない。渡すのはコンテナ専用に作った鍵（`ssh`）か、sidecar だけが持つ refresh token（`gh`）で、権限を絞る。**例外は `codex` モジュール**で、有効にするとホストの `~/.codex/auth.json`（Codex の token。平文のファイル）がそのままコンテナに渡る。既定では渡さず、コンテナ内で別にログインする（[codex.md](codex.md)）
+5. **read-only が原則。** 書き込みが必要なもの（`~/.claude`、`~/.codex`、ワークスペース、`gh-token` sidecar の状態 volume）だけ rw にする
 6. **single-file bind mount を避ける。** コンテナ内で atomic write（tmp → rename）されるファイルを single-file で bind すると `rename` が EXDEV で失敗し壊れる。該当するものは `.host` として ro で渡し、postCreate でコピーする（`~/.claude.json`）か、親ディレクトリごと渡す（`~/.codex/config.toml`）
 7. **ホストの Docker を渡さない。** `/var/run/docker.sock` はコンテナに渡さない。Docker は rootless の sidecar が提供する（[docker.md](docker.md)）
 8. **macOS Keychain は渡さない。** Claude Code 本体と MCP サーバーの認証はコンテナ内で行い、結果は `~/.claude/.credentials.json` に残す（[mcp.md](mcp.md)）
@@ -38,7 +38,7 @@
 | `gpg` | 署名鍵、パスフレーズ | 代行実行（sidecar が署名） | commit / tag に署名させられる。鍵は漏れない | [gpg.md](gpg.md) |
 | `aws` | login セッション、長期鍵 | 代行実行（sidecar が一時 credential を発行） | 有効期限付きの一時 credential。長期鍵は漏れない | [aws.md](aws.md) |
 | `ssh` | ホストの秘密鍵、agent | 平文（コンテナ専用鍵を ro bind） | 専用鍵が漏れる。被害は鍵の権限の範囲 | [ssh.md](ssh.md) |
-| `gh` | ホストの token（Keychain） | 平文（コンテナ専用 token を rw bind） | 専用 token が漏れる。被害は scope の範囲 | [github.md](github.md) |
+| `gh` | ホストの token（Keychain）、refresh token | 代行実行（sidecar が短命の access token を発行） | 数時間で失効する access token。refresh token は漏れない | [github.md](github.md) |
 | git | gitconfig | 渡さない（ro） | 設定が読める。書き換えは不可 | [git.md](git.md) |
 | `claude` | 設定、履歴、token | コンテナ内で認証（平文で `~/.claude` に残る） | 有効時: **ホストの設定の改変、token と履歴の持ち出し**。最大の穴。無効時: volume 内の token と履歴のみ | [claude-code.md](claude-code.md) |
 | `codex` | 設定、履歴、token（`auth.json`） | 有効時: **ホストの token を平文のまま共有**。無効時: コンテナ内で認証（volume に残る） | 有効時: **ホストの token の持ち出し、ホストで実行されるコマンドの設定（`notify` / hooks / MCP）の改変**。`claude` より重い。無効時: volume 内の token と履歴のみ | [codex.md](codex.md) |
@@ -68,7 +68,8 @@
 | `ssh` | `<repo>/capabilities/ssh/data` | `~/.ssh` | ro | bind | [ssh.md](ssh.md)。コンテナ専用の秘密鍵のみ |
 | `ssh` | `<repo>/capabilities/ssh/config` | `/etc/ssh/ssh_config.d/github.conf` | ro | bind | [ssh.md](ssh.md)。追跡対象 |
 | `ssh` | `<repo>/capabilities/ssh/known_hosts` | `/etc/ssh/ssh_known_hosts` | ro | bind | [ssh.md](ssh.md)。追跡対象 |
-| `gh` | `<repo>/capabilities/gh/data` | `~/.config/gh` | rw | bind | [github.md](github.md) |
+| `gh` | なし（`gh-token` sidecar が `127.0.0.1:8082` で access token を発行） | 環境変数 `DCC_GH_TOKEN_URI` / `DCC_GH_HOST` のみ | — | — | [github.md](github.md) |
+| `gh` | `<repo>/capabilities/gh/gh-token-client.sh` | `/usr/local/lib/dcc/gh-token-client.sh`、`/usr/local/bin/gh` | ro | bind | [github.md](github.md)。`gh` の wrapper と git の credential helper |
 
 `<repo>` はこのリポジトリ。compose ファイル内では `${DCC_CONFIG_DIR}` 基準の絶対パスで書かれ、ホスト側のパスは `DCC_*` 環境変数で変更できる（[customization.md](customization.md)）。
 
@@ -88,6 +89,7 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
 |---|---|---|---|
 | `aws-credentials` | `~/.aws/config`、`~/.aws/login/cache` | `/root/.aws/config`、`/root/.aws/login/cache` | ro |
 | `gpg-signer` | `~/.gnupg/private-keys-v1.d`、`<repo>/capabilities/gpg/gnupg-host` | `/host-keys`、`/gnupg-host` | ro |
+| `gh-token` | volume `dcc-gh-home`（`DCC_GH_HOME_VOLUME`、external、全ワークスペース共有。`dcc gh-login` が書く） | `/home/gh/.config/gh` | rw |
 
 ## 方向性: ホストへ戻るもの / 戻らないもの
 
@@ -97,7 +99,8 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
 | `~/.claude`（セッション履歴、プラグイン、設定、コンテナで取得した OAuth token） | `claude` 有効時は**される**（token はホストの Claude Code からは参照されない）。無効時はされない（volume に閉じる） |
 | `~/.claude.json` | されない（コンテナローカルのコピー） |
 | `~/.codex`（設定、認証、セッション履歴） | `codex` 有効時は**される**（設定の変更も token の更新もホストの Codex にそのまま効く）。無効時はされない（volume に閉じる） |
-| `~/.ssh`、`~/.config/gh` | されない（コンテナ専用。ホストのものとは別物） |
+| `~/.ssh` | されない（コンテナ専用。ホストのものとは別物） |
+| gh の認証状態 | されない（`dcc-gh-home` volume に閉じる。ホストの gh とは別物） |
 | `~/.gnupg`、`~/.gitconfig*`、`~/.aws` | されない（ro、または本体に無い） |
 | git の `safe.directory` | されない（コンテナ内の system gitconfig） |
 | Docker イメージ・コンテナ | ホストの Docker には**現れない**。sidecar の `docker-data` volume に閉じる |
@@ -113,7 +116,7 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
 - 本体と sidecar は netns を共有する。sidecar で `-p 3000:80` したポートは本体の `localhost:3000` で届く。ホストからは届かない（compose に `ports` を書いていない）
 - 本体 → ホスト（`host.docker.internal` 等）の到達性は Docker ランタイム依存。設定では特別扱いしていない
 - inner container → 親 netns の `127.0.0.1` には届かない（rootlesskit の `--disable-host-loopback`）
-- モジュール sidecar の endpoint（`127.0.0.1:8080` / `8081`）は共有 netns の内側だけで到達可能。ホスト・inner container・他の compose project からは届かない
+- モジュール sidecar の endpoint（`127.0.0.1:8080` / `8081` / `8082`）は共有 netns の内側だけで到達可能。ホスト・inner container・他の compose project からは届かない
 - **外向きの通信は制限していない**（下記）
 
 ## この設計が守らないもの
@@ -127,7 +130,7 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
   秘密情報（`.env` など）は本体から読める。ホストで実行されるファイル（git hooks、ビルドスクリプト、エディタの設定）を
   書き換えられる点にも注意する
 - **本体に渡した credential の利用。** 代行実行でも「署名させる」「一時 credential を取る」こと自体は本体から自由にできる。
-  専用の鍵 / token（`ssh` / `gh`）は読み出せる。被害の上限は各ページの「侵害時に漏れるもの」のとおり
+  専用の鍵（`ssh`）と、失効前の access token（`gh`）は読み出せる。被害の上限は各ページの「侵害時に漏れるもの」のとおり
 - **本体コンテナ内の権限。** コンテナユーザー（`agent`）は sudo NOPASSWD で、本体コンテナ内では root 相当。境界はコンテナの外枠
   （非特権、ホストの Docker socket なし、選んだマウントだけ）で引いている
 - **エージェントの権限設定。** Claude Code の permissions / hooks / sandbox、Codex の承認ポリシーは利用者の設定の領域で、このリポジトリでは扱わない。

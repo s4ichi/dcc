@@ -44,6 +44,6 @@
 ## 制約・既知の穴
 
 - ワークスペース配下の別リポジトリ（サブモジュール、monorepo 内の別 `.git`）は `safe.directory` に登録されない。必要なら `sudo git config --system --add safe.directory '*'` にするか個別に追加する
-- ホストの `~/.gitconfig` に `credential.helper = osxkeychain` があると、コンテナ内で helper が見つからず警告が出る（致命的ではない）。HTTPS で push するなら [github.md](github.md) の `GH_TOKEN` か `gh auth git-credential` を使う
+- ホストの `~/.gitconfig` に `credential.helper = osxkeychain` があると、コンテナ内で helper が見つからず警告が出る（致命的ではない）。HTTPS で push するなら `gh` モジュールを有効にする（postCreate が gh-token sidecar の短命 token を返す credential helper を system に登録し、こちらが先に問い合わせられる。[github.md](github.md)）
 - SSH 署名（`gpg.format = ssh`）で `user.signingkey` がホストの `~/.ssh/...` を指している場合、コンテナには無い。[ssh.md](ssh.md) の鍵を指すよう system gitconfig で上書きする
 - コンテナ専用の identity を使いたい場合は system gitconfig またはワークスペースの `.git/config` で上書きする

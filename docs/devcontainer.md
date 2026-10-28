@@ -85,7 +85,7 @@ services:
   `FROM` 先の base を先に作る（`dcc build` を一度実行するか、次を実行する）:
   `docker compose -f <repo>/docker-compose.yml -f <repo>/docker-compose.base-image.yml build agent`
 - `postCreateCommand` は `dcc` が使うものと同じスクリプト。`~/.claude.json` のコピー、
-  `safe.directory` の登録、`claude update`、`gpg` 有効時の検証用 keyring 構築を行う
+  `safe.directory` の登録、`claude update`、`gpg` 有効時の検証用 keyring 構築、`gh` 有効時の git credential helper 登録を行う
 
 起動は通常どおり `devcontainer up --workspace-folder .` / `devcontainer exec --workspace-folder . claude`、
 または VS Code の "Reopen in Container"。
@@ -94,7 +94,8 @@ services:
 
 | モジュール | devcontainer 側で必要なこと |
 |---|---|
-| `ssh` / `gh` | `dockerComposeFile` に overlay を足すだけ |
+| `ssh` | `dockerComposeFile` に overlay を足すだけ |
+| `gh` | overlay を足し、ホストで一度 `dcc gh-login` を実行する（external volume `dcc-gh-home` の作成と token の用意を行う。ワークスペースに依存しないので devcontainer の外で実行してよい）。`dcc build` をしていなければ sidecar のイメージは up 時に build される |
 | `claude` | overlay を足すとホストの `~/.claude` を共有する。足さない場合は base が external volume `dcc-claude-home` を要求するので、先に `docker volume create dcc-claude-home` を一度実行する（`dcc` は自動で作る） |
 | `codex` | `claude` と同じ。overlay を足すとホストの `~/.codex` を共有する。足さない場合は `docker volume create dcc-codex-home` を一度実行する。**base が両方の volume を参照するので、Codex を使わなくても `dcc-codex-home` は必要**（Claude Code を使わない場合の `dcc-claude-home` も同様）。devcontainer から `codex` を起動するときは `dcc` の既定引数が付かないので、`codex -c sandbox_mode=danger-full-access` のように自分で渡すか `~/.codex/config.toml` に書く（[codex.md](codex.md)） |
 | `aws` | `dockerComposeFile` に overlay を足すだけ。`initializeCommand` に `aws` を書くと `~/.aws/config` / `~/.aws/login/cache` の存在を事前チェックする。`AWS_PROFILE` / `AWS_REGION` はシェルの環境変数から compose が拾う |

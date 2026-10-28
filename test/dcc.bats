@@ -226,6 +226,37 @@ setup() {
   [ "$CREDS_SOURCE" = DCC_CREDS ]
 }
 
+@test "gh_login: requests expiring credentials on the volume, user args last" {
+  docker() {
+    case "$1 $2" in
+      "volume inspect" | "image inspect") return 0 ;;
+    esac
+    printf '%s\n' "$@" >> "$BATS_TEST_TMPDIR/docker"
+  }
+  DCC_GH_HOST=ghe.example.com DCC_GH_HOME_VOLUME=gh-vol load_config
+  run gh_login --scopes read:packages
+  [ "$status" -eq 0 ]
+  args="$(paste -sd' ' "$BATS_TEST_TMPDIR/docker")"
+  [[ "$args" == "run --rm -i -v gh-vol:/home/gh/.config/gh --entrypoint gh dcc-gh-token:local auth login --hostname ghe.example.com --expiring "*"--scopes read:packages run "* ]]
+  [[ "$args" == *" auth status --hostname ghe.example.com" ]]
+  [[ "$args" != *"build"* ]]
+}
+
+@test "gh_login: creates the volume and builds the image when missing, fails on login error" {
+  docker() {
+    case "$1 $2" in
+      "volume inspect" | "image inspect") return 1 ;;
+      "run --rm") return 1 ;;
+    esac
+    printf '%s\n' "$*" >> "$BATS_TEST_TMPDIR/docker"
+  }
+  run gh_login
+  [ "$status" -eq 1 ]
+  grep -qx "volume create dcc-gh-home" "$BATS_TEST_TMPDIR/docker"
+  grep -qx "build -t dcc-gh-token:local $REPO/capabilities/gh" "$BATS_TEST_TMPDIR/docker"
+  [[ "$output" == *"login failed"* ]]
+}
+
 @test "check_creds_drift: warns with +added/-removed and a recreate hint" {
   agent_label() { printf 'aws,gpg'; }
   CREDS_EXPLICIT=1 CREDS_REQUEST="gpg,ssh"

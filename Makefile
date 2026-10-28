@@ -2,7 +2,7 @@ JSONNET ?= jsonnet
 SRC := template.jsonnet
 OUT := docker-compose.yml docker-compose.workspace.yml docker-compose.base-image.yml capabilities/*/compose.yml
 # lib/*.sh は dcc の source 指示 (# shellcheck source=) 経由で -x が辿るので、個別には並べない
-SCRIPTS := dcc lifecycle_hooks/*.sh capabilities/gpg/*.sh
+SCRIPTS := dcc lifecycle_hooks/*.sh capabilities/gpg/*.sh capabilities/gh/*.sh
 
 .PHONY: all generate fmt check lint test clean
 

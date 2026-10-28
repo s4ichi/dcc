@@ -129,6 +129,8 @@ Commands:
                      With \$DCC_LOCAL_DIR/Dockerfile present, the base image is built first,
                      then the personal one on top of it
   creds              Show available credential modules and the running container's selection
+  gh-login [args]    Log in to GitHub for the gh module (gh auth login --expiring in the gh-token
+                     sidecar image; shared by every workspace). Args are passed to gh auth login
   list, ls           List containers across all workspaces
   inspect            Show container details across all workspaces
   help               Show this help
