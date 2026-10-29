@@ -62,7 +62,7 @@ base の volume と同じ target `/home/agent/.claude` を bind で上書きす�
 |---|---|---|---|
 | volume `dcc-claude-home`（`DCC_CLAUDE_HOME_VOLUME`。external、全ワークスペース共有） | `/home/agent/.claude/` | rw | 空で始まる。認証情報と履歴はここに残る |
 
-`dcc up` が volume を無ければ作る（external なので compose は作らない。devcontainer からは `docker volume create dcc-claude-home`）。postCreate は volume の所有者を直すだけで、`~/.claude.json` も Claude Code が初回に作る（onboarding が出る）。
+`dcc up` が volume を無ければ作る（external なので compose は作らない。devcontainer からは `docker volume create dcc-claude-home`）。所有者はイメージの `~/.claude`（コンテナユーザー所有）を初回 mount で引き継ぎ、postCreate はそれを確認して `chmod 700` するだけ。`~/.claude.json` も Claude Code が初回に作る（onboarding が出る）。
 
 ### `claude` 本体のインストール場所
 

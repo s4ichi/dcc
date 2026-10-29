@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# コンテナ作成後にコンテナ内で一度だけ実行する (cwd はワークスペース)。
+# コンテナ作成後にコンテナユーザーで一度だけ実行する (cwd はワークスペース)。root が要る処理は
+# postCreate-root.sh (dcc が先に root で実行する) に置く。本体に sudo は無い。
 # 出力は「コンテナがどうなったか」を "<主語>: <述語>" で 1 行ずつ (dcc がそのまま ▸ 行にする)。
 # 警告は "warn: <主語>: <述語>"。毎回同じ結果になる処理 (safe.directory 等) は書かない。
 # shellcheck disable=SC2088  # 主語の "~/.claude" は表示用の文字列で、展開させない
@@ -21,12 +22,12 @@ fi
 # ~/.claude の初期化。
 # - claude モジュール有効: ~/.claude はホストの rw bind。~/.claude.json は single-file bind だと
 #   atomic write が EXDEV で失敗するため、ro で渡された初期値をコンテナローカルへコピーする
-# - 無効: ~/.claude は全ワークスペース共有の空の volume。所有者だけ直し、中身は Claude Code に任せる
+# - 無効: ~/.claude は全ワークスペース共有の空の volume (所有者はイメージから引き継がれ、postCreate-root.sh が
+#   確認済み)。中身は Claude Code に任せる
 if has_cred claude; then
   cp "${HOME}/.claude.json.host" "${HOME}/.claude.json"
   echo "~/.claude: shared with host"
 else
-  sudo chown "$(id -u):$(id -g)" "${HOME}/.claude"
   chmod 700 "${HOME}/.claude"
   echo "~/.claude: on volume dcc-claude-home (claude module off)"
 fi
@@ -37,27 +38,14 @@ fi
 if has_cred codex; then
   echo "~/.codex: shared with host"
 else
-  sudo chown "$(id -u):$(id -g)" "${HOME}/.codex"
   chmod 700 "${HOME}/.codex"
   echo "~/.codex: on volume dcc-codex-home (codex module off)"
 fi
 
-# ホストでインストールした plugin のメタデータはホストの絶対パスを含むため、
-# ホストのホーム → コンテナのホームへ symlink して解決させる
-if [ -n "${HOST_HOME:-}" ] && [ "${HOST_HOME}" != "${HOME}" ] && [ ! -e "${HOST_HOME}" ]; then
-  sudo mkdir -p "$(dirname "${HOST_HOME}")"
-  sudo ln -sfn "${HOME}" "${HOST_HOME}"
-fi
-
-# bind されたワークスペースはホスト uid のままなので safe.directory に登録する。
-# ~/.gitconfig は ro なので system に書く
-sudo git config --system --add safe.directory "$(pwd)"
-
-# gpg モジュール有効時: 検証用に公開鍵を import し、署名は gpg-signer sidecar へ委譲する wrapper を
-# gpg.program に登録する (主経路は compose の GIT_CONFIG_* 環境変数。ここは env が剥がれた場合の保険)
+# gpg モジュール有効時: 検証用に公開鍵と ownertrust をコンテナユーザーの keyring へ import する
+# (署名は postCreate-root.sh が登録した wrapper 経由で gpg-signer sidecar に委譲される)
 setup_gnupg() {
   local export_dir="${HOME}/.gnupg-host"
-  local client=/usr/local/lib/dcc/gpg-sign-client.sh
 
   [ -s "${export_dir}/pubkeys.asc" ] || return 0
 
@@ -65,23 +53,6 @@ setup_gnupg() {
   if [ -s "${export_dir}/ownertrust.txt" ]; then
     gpg --quiet --import-ownertrust "${export_dir}/ownertrust.txt" 2>/dev/null
   fi
-
-  if [ -x "$client" ]; then
-    sudo git config --system gpg.program "$client"
-    echo "gpg: signing delegated to gpg-signer"
-  fi
+  echo "gpg: public keys imported for verification"
 }
 setup_gnupg
-
-# gh モジュール有効時: git の https 認証を gh-token sidecar の短命 token にする。
-# gh auth setup-git は ~/.gitconfig (ro) に書こうとして失敗するので、system に登録する
-setup_gh_credential() {
-  local client=/usr/local/lib/dcc/gh-token-client.sh
-  local host="${DCC_GH_HOST:-github.com}"
-
-  [ -x "$client" ] || return 0
-
-  sudo git config --system --replace-all "credential.https://${host}.helper" "!${client} git-credential"
-  echo "gh: token served by gh-token sidecar (gh and git over https://${host})"
-}
-setup_gh_credential

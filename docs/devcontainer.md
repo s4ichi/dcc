@@ -84,8 +84,17 @@ services:
   シェルで `DCC_BUILD_CONTEXT=<repo>/local` と `DCC_DOCKERFILE=<repo>/local/Dockerfile` を export し、
   `FROM` 先の base を先に作る（`dcc build` を一度実行するか、次を実行する）:
   `docker compose -f <repo>/docker-compose.yml -f <repo>/docker-compose.base-image.yml build agent`
-- `postCreateCommand` は `dcc` が使うものと同じスクリプト。`~/.claude.json` のコピー、
-  `safe.directory` の登録、`claude update`、`gpg` 有効時の検証用 keyring 構築、`gh` 有効時の git credential helper 登録を行う
+- `postCreateCommand` は `dcc` が使うものと同じスクリプト（コンテナユーザー側）。`~/.claude.json` のコピー、
+  `claude update`、`gpg` 有効時の検証用 keyring 構築を行う。root が要る部分（`safe.directory` の登録、`gpg` / `gh` 有効時の
+  system gitconfig への登録、`HOST_HOME` の symlink）は `postCreate-root.sh` にあり、本体に sudo が無いため
+  `postCreateCommand`（`remoteUser` で実行される）からは呼べない。初回の up の後にホストから一度実行する:
+
+  ```bash
+  docker compose -p <name>_devcontainer exec --user root --workdir /workspaces/<name> agent \
+    bash /usr/local/lib/dcc/hooks/postCreate-root.sh agent
+  ```
+
+  （`<name>_devcontainer` は devcontainer CLI が付けるプロジェクト名。`dcc list` でも確認できる）
 
 起動は通常どおり `devcontainer up --workspace-folder .` / `devcontainer exec --workspace-folder . claude`、
 または VS Code の "Reopen in Container"。

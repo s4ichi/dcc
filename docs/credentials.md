@@ -94,7 +94,8 @@ dcc up --creds gpg,ssh
   ├─ check_drift       : 既存コンテナと比較して警告 (モジュールの選択 / AWS_PROFILE / gpg の署名鍵。
   │                      選択はフラグ指定時のみ差が出る)
   ├─ docker compose -p <project> -f base -f workspace -f capabilities/gpg/compose.yml -f capabilities/ssh/compose.yml up -d --no-recreate
-  └─ docker compose exec agent postCreate.sh    (未実行のときだけ)
+  ├─ docker compose exec --user root agent postCreate-root.sh agent    (未実行のときだけ)
+  └─ docker compose exec --user agent agent postCreate.sh
 ```
 
 設計上のポイント:
@@ -123,7 +124,9 @@ dcc up --creds gpg,ssh
 3. ホスト側の前処理や bind ソースの事前チェックが必要なら `lifecycle_hooks/initialize.sh` の `case` に
    足す（`gpg` の export が例）。結果は compose の環境変数ではなく**ファイル**で渡す（devcontainer 経由
    でも動くように）。
-4. コンテナ側の後処理が必要なら `postCreate.sh` でマウントの存在を見て gate する（`setup_gnupg` が例）。
+4. コンテナ側の後処理が必要なら `postCreate.sh`（コンテナユーザー）か `postCreate-root.sh`（root。system gitconfig など）で
+   マウントの存在を見て gate する（`setup_gnupg` と `gpg.program` の登録が例）。本体に sudo は無く root にも capability が
+   無いので、`chown` のような処理は書けない（所有者はイメージ側で用意する）。
 5. ホスト側のパスやポートなど利用者ごとに変わりうる値は `${DCC_X:-<既定値>}` で書き、`.env.example` と
    [customization.md](customization.md) の表に 1 行足す。
 6. `docs/<name>.md` を [README.md](README.md) の「各ページの構成」に沿って書き、同ページの表、

@@ -67,9 +67,9 @@ gpg が無い / 秘密鍵が無い / 署名鍵未設定なら警告だけ出し�
 
 起動時にコンテナローカルの `/root/.gnupg` を構築する: `gpg-agent.conf`（`pinentry-curses`、cache TTL 400 日）→ 公開鍵と ownertrust の import → `keygrips.txt` の keygrip ファイルだけを `/host-keys` からコピー（600）→ `signing-key.txt` の値を `/run/signing-key` に固定して `server.py` を exec。
 
-### 3. 本体側（postCreate の `setup_gnupg`）
+### 3. 本体側（postCreate）
 
-`~/.gnupg-host/pubkeys.asc` があるときだけ、公開鍵と ownertrust をコンテナローカル keyring へ import し、`sudo git config --system gpg.program <wrapper>` を登録する。主経路は compose が gpg overlay で設定する環境変数 `GIT_CONFIG_COUNT=1` / `GIT_CONFIG_KEY_0=gpg.program` / `GIT_CONFIG_VALUE_0=<wrapper>`（git 設定の最優先レイヤ）で、ホストの `~/.gitconfig` が `gpg.program` を設定していても上から固定する。system 登録は env が剥がれた場合（`sudo git` 等）の保険。
+`postCreate-root.sh`（root）が wrapper の mount があるときだけ `git config --system gpg.program <wrapper>` を登録し、`postCreate.sh`（コンテナユーザー）の `setup_gnupg` が `~/.gnupg-host/pubkeys.asc` があるときだけ公開鍵と ownertrust をコンテナローカル keyring へ import する。主経路は compose が gpg overlay で設定する環境変数 `GIT_CONFIG_COUNT=1` / `GIT_CONFIG_KEY_0=gpg.program` / `GIT_CONFIG_VALUE_0=<wrapper>`（git 設定の最優先レイヤ）で、ホストの `~/.gitconfig` が `gpg.program` を設定していても上から固定する。system 登録は env が剥がれた場合（`env -i` 経由のツール等）の保険。
 
 ### 4. パスフレーズの warm（`capabilities/gpg/warm.sh`）
 

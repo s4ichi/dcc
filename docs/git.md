@@ -37,13 +37,13 @@
 |---|---|---|
 | `~/.gitconfig`（`DCC_GITCONFIG`） | `/home/agent/.gitconfig` | ro |
 
-- **`safe.directory`**: bind されたワークスペースはホスト uid のまま見えるため、コンテナユーザーと一致しないと git が `dubious ownership` で全操作を拒否する。postCreate が `sudo git config --system --add safe.directory "$(pwd)"` を実行する（cwd はワークスペース）
+- **`safe.directory`**: bind されたワークスペースはホスト uid のまま見えるため、コンテナユーザーと一致しないと git が `dubious ownership` で全操作を拒否する。postCreate（root 側の `postCreate-root.sh`）が `git config --system --add safe.directory "$(pwd)"` を実行する（cwd はワークスペース。本体に sudo は無いので `dcc` が root で呼ぶ）
 - **署名**: `user.signingkey` / `commit.gpgsign` はホストの `~/.gitconfig*` に従う。`gpg.program` だけは `gpg` モジュール有効時に compose の `GIT_CONFIG_*` 環境変数（最優先レイヤ）が sidecar への wrapper に固定するため、ホストの `~/.gitconfig` に何が書かれていても影響しない（[gpg.md](gpg.md)）
 - **`GOPRIVATE`**: 必要なら `DCC_CONTAINER_ENV_GOPRIVATE` でコンテナに渡す（[customization.md](customization.md)）。private module の取得は git（SSH または HTTPS + token）で行う
 
 ## 制約・既知の穴
 
-- ワークスペース配下の別リポジトリ（サブモジュール、monorepo 内の別 `.git`）は `safe.directory` に登録されない。必要なら `sudo git config --system --add safe.directory '*'` にするか個別に追加する
+- ワークスペース配下の別リポジトリ（サブモジュール、monorepo 内の別 `.git`）は `safe.directory` に登録されない。コンテナ内では root に上がれないので system gitconfig は書けない。`git -c safe.directory=<path> …` で都度渡すか、ホストから `docker compose -p <project> exec --user root agent git config --system --add safe.directory '*'` で登録する（`<project>` は `dcc list`）
 - ホストの `~/.gitconfig` に `credential.helper = osxkeychain` があると、コンテナ内で helper が見つからず警告が出る（致命的ではない）。HTTPS で push するなら `gh` モジュールを有効にする（postCreate が gh-token sidecar の短命 token を返す credential helper を system に登録し、こちらが先に問い合わせられる。[github.md](github.md)）
 - SSH 署名（`gpg.format = ssh`）で `user.signingkey` がホストの `~/.ssh/...` を指している場合、コンテナには無い。[ssh.md](ssh.md) の鍵を指すよう system gitconfig で上書きする
 - コンテナ専用の identity を使いたい場合は system gitconfig またはワークスペースの `.git/config` で上書きする

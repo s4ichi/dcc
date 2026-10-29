@@ -78,7 +78,7 @@ device flow で表示された URL をホストのブラウザで開き、one-ti
 - `GET /token` は `gh auth token --hostname $GH_HOST` の出力を `text/plain` で返す。失敗（未ログイン、refresh token の失効など）は 503 で、本文は対処（`dcc gh-login`）だけ。gh の stderr は sidecar のログにだけ出す。`/token` 以外は 404
 - sidecar の gh は `GH_TOKEN` / `GH_DEBUG` などを落とした環境で動かす（`GH_TOKEN` があると gh は refresh しない。`GH_DEBUG` は使わない）
 - 本体の wrapper は `gh auth login|logout|refresh|switch|setup-git` を拒否し、`dcc gh-login` を案内する。sidecar に届かないときは警告して token 無しで `/usr/bin/gh` を実行する
-- credential helper は postCreate が `git config --system credential.https://<host>.helper` に登録する（`~/.gitconfig` は ro）。ホストの `~/.gitconfig` 由来の helper（`osxkeychain` 等）より先に問い合わせられ、token を返したところで git は次の helper に進まない
+- credential helper は postCreate（root 側の `postCreate-root.sh`）が `git config --system credential.https://<host>.helper` に登録する（`~/.gitconfig` は ro）。ホストの `~/.gitconfig` 由来の helper（`osxkeychain` 等）より先に問い合わせられ、token を返したところで git は次の helper に進まない
 - sidecar の gh は `GH_VERSION`（`capabilities/gh/Dockerfile` の ARG）で版を固定する。expiring には 2.103.0 以上が要る
 - 旧方式（`capabilities/gh/data/` を本体に rw bind）の `hosts.yml` は使われなくなった。中の token は GitHub 側で revoke し、ディレクトリを消す
 

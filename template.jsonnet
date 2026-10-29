@@ -253,6 +253,11 @@ local compose = {
       init: true,
       // sidecar と netns を共有する (ports / hostname / dns / extra_hosts はここに書けない)
       network_mode: sharedNetns,
+      // エージェントのプロセスから root へ上がる経路を断つ (setuid / file capability を無効化し、root で
+      // 動くものにも capability を与えない)。root が要る postCreate の処理は dcc が exec --user root で
+      // 呼ぶ (postCreate-root.sh)。docs/boundaries.md
+      security_opt: ['no-new-privileges:true'],
+      cap_drop: ['ALL'],
       depends_on: { docker: { condition: 'service_started' } },
       environment: {
         DOCKER_HOST: 'tcp://docker:2376',

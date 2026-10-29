@@ -21,7 +21,7 @@
 ## 設計原則
 
 1. **秘密情報は選んだものだけ渡す。** `aws` / `gpg` / `ssh` / `gh` / `claude` / `codex` はモジュール化されており、`dcc --creds` で明示しない限りマウントされない（[credentials.md](credentials.md)）
-2. **特権と秘密情報を同居させない。** `privileged: true` を持つ Docker sidecar には秘密情報を一切渡さない。渡し先は本体か、`aws-credentials` / `gpg-signer` / `gh-token` のような非特権のモジュール sidecar だけ。本体は非特権（ユーザー `agent` uid 1000、ただし sudo NOPASSWD）
+2. **特権と秘密情報を同居させない。** `privileged: true` を持つ Docker sidecar には秘密情報を一切渡さない。渡し先は本体か、`aws-credentials` / `gpg-signer` / `gh-token` のような非特権のモジュール sidecar だけ。本体は非特権（ユーザー `agent` uid 1000。sudo なし、`no-new-privileges`、`cap_drop: ALL`）
 3. **鍵を取りに行くのは本体ではなく sidecar。** 署名（gpg）、AWS、GitHub（gh）は代行実行で、本体が受け取るのは署名結果と有効期限付きの一時 credential / access token だけ
 4. **長期鍵をコンテナに持ち込まない。** ホストの `~/.ssh`、`~/.aws/credentials`、`~/.gnupg` の秘密鍵、Keychain の token は渡さない。渡すのはコンテナ専用に作った鍵（`ssh`）か、sidecar だけが持つ refresh token（`gh`）で、権限を絞る。**例外は `codex` モジュール**で、有効にするとホストの `~/.codex/auth.json`（Codex の token。平文のファイル）がそのままコンテナに渡る。既定では渡さず、コンテナ内で別にログインする（[codex.md](codex.md)）
 5. **read-only が原則。** 書き込みが必要なもの（`~/.claude`、`~/.codex`、ワークスペース、`gh-token` sidecar の状態 volume）だけ rw にする
@@ -108,7 +108,7 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
 ## uid の扱い
 
 - 本体コンテナのユーザーは `agent`（uid 1000。`DCC_USER` / `DCC_UID` で変更可）。macOS ホストでは Docker Desktop / Rancher Desktop などの VM を経由するため、bind mount 上のファイルはコンテナから基本的に読み書きできる
-- git は所有者 uid の不一致を `dubious ownership` として拒否するので、postCreate でワークスペースを `safe.directory` に登録する（[git.md](git.md)）
+- git は所有者 uid の不一致を `dubious ownership` として拒否するので、postCreate（root 側）でワークスペースを `safe.directory` に登録する（[git.md](git.md)）
 - sidecar の dockerd も uid 1000 で動く。inner container 内の root は userns 内の root で、ワークスペース上のファイルは uid 1000 として書かれる
 
 ## ネットワークの境界
@@ -131,7 +131,9 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
   書き換えられる点にも注意する
 - **本体に渡した credential の利用。** 代行実行でも「署名させる」「一時 credential を取る」こと自体は本体から自由にできる。
   専用の鍵（`ssh`）と、失効前の access token（`gh`）は読み出せる。被害の上限は各ページの「侵害時に漏れるもの」のとおり
-- **本体コンテナ内の権限。** コンテナユーザー（`agent`）は sudo NOPASSWD で、本体コンテナ内では root 相当。境界はコンテナの外枠
-  （非特権、ホストの Docker socket なし、選んだマウントだけ）で引いている
+- **本体コンテナ内の権限。** コンテナユーザー（`agent`）は root に上がれない（sudo なし、`no-new-privileges` で setuid / file capability が
+  無効、`cap_drop: ALL` で root にも capability が無い）。root が要るコンテナ作成後の処理は `dcc` が `compose exec --user root` で
+  `postCreate-root.sh` として実行する。それでも境界はコンテナの外枠（非特権、ホストの Docker socket なし、選んだマウントだけ）で引いており、
+  コンテナ内のファイル（`/etc`、イメージの中身）はエージェントのユーザー権限の範囲でしか守られない
 - **エージェントの権限設定。** Claude Code の permissions / hooks / sandbox、Codex の承認ポリシーは利用者の設定の領域で、このリポジトリでは扱わない。
   唯一の例外として、**Codex 自身の sandbox は `dcc` が既定で外す**（コンテナ内では動かないことが多く、動いても sidecar への通信を切るため。[codex.md](codex.md)）

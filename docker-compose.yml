@@ -9,6 +9,8 @@ services:
         USER_UID: "${DCC_UID:-1000}"
       context: "${DCC_BUILD_CONTEXT:-${DCC_CONFIG_DIR:-${HOME}/.config/dcc}}"
       dockerfile: "${DCC_DOCKERFILE:-Dockerfile}"
+    cap_drop:
+      - "ALL"
     command:
       - "sleep"
       - "infinity"
@@ -30,6 +32,8 @@ services:
     labels:
       dcc.credentials: "${DCC_CREDS-}"
     network_mode: "service:docker"
+    security_opt:
+      - "no-new-privileges:true"
     volumes:
       - read_only: true
         source: "${DCC_GITCONFIG:-${HOME}/.gitconfig}"

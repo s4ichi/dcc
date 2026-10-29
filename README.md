@@ -187,8 +187,9 @@ make check      # shellcheck + bats + Jsonnet の評価
 
 `docker-compose*.yml` と `capabilities/*/compose.yml` は生成物なので直接編集せず、`template.jsonnet` を変えて
 `make generate` する。必要なツールは `jsonnet`（go-jsonnet）、`shellcheck`、`bats`
-（macOS: `brew install go-jsonnet shellcheck bats-core`）。本体イメージには `jsonnet` が入っているので、
-コンテナ内で作業するなら `sudo apt install shellcheck bats` だけでよい。
+（macOS: `brew install go-jsonnet shellcheck bats-core`）。本体イメージには `jsonnet` は入っているが
+`shellcheck` / `bats` は無く、コンテナ内に sudo も無いので、コンテナ内で `make check` まで回すなら
+`local/Dockerfile` で足す（[docs/customization.md](docs/customization.md)）。
 コードの構成と規約は [CLAUDE.md](CLAUDE.md) と [docs/architecture.md](docs/architecture.md)。
 
 ## License

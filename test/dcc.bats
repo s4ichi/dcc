@@ -134,6 +134,44 @@ setup() {
   [ "${#lines[@]}" -eq 8 ]
 }
 
+# --- postCreate -------------------------------------------------------------------
+
+@test "run_post_create: root hook runs as root before the user hook, then the marker is set" {
+  # compose exec … test -e <marker> だけ失敗させ (未実行)、他は呼び出しを 1 行ずつ記録する
+  compose() {
+    case "$*" in *" test -e "*) return 1 ;; esac
+    printf '%s\n' "$*" >>"$BATS_TEST_TMPDIR/calls"
+  }
+  REMOTE_WORKSPACE=/workspaces/x
+  run run_post_create
+  [ "$status" -eq 0 ]
+  mapfile -t calls <"$BATS_TEST_TMPDIR/calls"
+  [ "${#calls[@]}" -eq 3 ]
+  [[ "${calls[0]}" == "exec -T --user root --workdir /workspaces/x agent bash $REMOTE_HOOKS_DIR/postCreate-root.sh $REMOTE_USER" ]]
+  [[ "${calls[1]}" == "exec -T --user $REMOTE_USER --workdir /workspaces/x agent bash $REMOTE_HOOKS_DIR/postCreate.sh" ]]
+  [[ "${calls[2]}" == "exec -T --user $REMOTE_USER agent touch $POSTCREATE_MARKER" ]]
+}
+
+@test "run_post_create: an existing marker skips both hooks" {
+  compose() {
+    case "$*" in *" test -e "*) return 0 ;; esac
+    echo "unexpected: $*" >&2
+    return 1
+  }
+  run run_post_create
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "run_hook: a failing hook names the script and exits 1" {
+  compose() { echo "warn: gpg: no keys" >&2; return 3; }
+  REMOTE_WORKSPACE=/workspaces/x
+  run run_hook root postCreate-root.sh agent
+  [ "$status" -eq 1 ]
+  [ "${lines[0]}" = "! gpg            no keys" ]
+  [ "${lines[1]}" = "! containers     postCreate-root.sh failed (rerun with 'dcc up')" ]
+}
+
 # --- ワークスペース ---------------------------------------------------------------
 
 @test "resolve_workspace: first directory argument is consumed as the workspace" {

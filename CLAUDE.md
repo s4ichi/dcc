@@ -45,7 +45,7 @@ make clean      # 生成物を削除
 - **ログは 1 行 1 情報**（`lib/log.sh` 冒頭の規約）。主語は `dcc` が触った対象で、関数名や compose のサブコマンド名は出さない。外部ツールの出力は成功時は隠し、失敗時に全部出す。フックは `<主語>: <述語>` / `warn: <主語>: <述語>` の行だけを出す
 - **利用者ごとの値を焼き込まない。** 個人・組織固有の値は `template.jsonnet` に `${DCC_X:-<既定値>}` で書き、`.env.example` と `docs/customization.md` の表に 1 行足す。`dcc` / `initialize.sh` が同じ値を必要とする場合は同じ既定値で参照する
 - **compose に相対パスを書かない。** リポジトリ内のファイルはすべて `${DCC_CONFIG_DIR:-${HOME}/.config/dcc}` 基準の絶対パスで参照する（devcontainer CLI から別の `-f` の並びで渡されても同じ場所を指すように）
-- **モジュールの追加**は `template.jsonnet` の `credModules` にエントリを足して `make generate`。`dcc` は `capabilities/*/compose.yml` のファイル名一覧からモジュール名を得るので変更不要。ホスト側の前処理は `lifecycle_hooks/initialize.sh` の `case`、コンテナ側はマウントの存在で gate して `postCreate.sh` に足す。手順の全体は `docs/credentials.md` の「モジュールの追加」
+- **モジュールの追加**は `template.jsonnet` の `credModules` にエントリを足して `make generate`。`dcc` は `capabilities/*/compose.yml` のファイル名一覧からモジュール名を得るので変更不要。ホスト側の前処理は `lifecycle_hooks/initialize.sh` の `case`、コンテナ側はマウントの存在で gate して `postCreate.sh`（コンテナユーザー）か `postCreate-root.sh`（root が要るもの）に足す。手順の全体は `docs/credentials.md` の「モジュールの追加」
 - **docs も一緒に直す。** 境界ごとのページは同じ見出し（守るもの / 境界 / 侵害時に漏れるもの / なぜこの構成か / 仕組み / 制約・既知の穴）で書く。マウントを変えたら `docs/boundaries.md` のマウント一覧、コマンドやオプションを変えたら `usage`（`lib/cli.sh`）・`README.md`・`docs/architecture.md` を更新する
 - **コメントは「なぜ」を書く。** 設計理由の本文は docs に置き、コード側は 1〜2 行の要点と docs へのポインタに留める
 
@@ -63,7 +63,8 @@ make clean      # 生成物を削除
 | `Dockerfile` | 本体イメージ（`debian:bookworm-slim`、dockerd は含まない）。個人のレイヤは `local/Dockerfile` で足す |
 | `dcc`、`lib/*.sh` | CLI の入口と実装（分担は `dcc` 冒頭のコメントと `docs/architecture.md`） |
 | `lifecycle_hooks/initialize.sh` | ホスト側の前処理（モジュールごとの export / 事前チェック）。`dcc up` と devcontainer の `initializeCommand` から呼ぶ |
-| `lifecycle_hooks/postCreate.sh` | コンテナ作成後にコンテナ内で一度だけ実行するフック。`dcc up` と devcontainer の `postCreateCommand` から呼ぶ |
+| `lifecycle_hooks/postCreate-root.sh` | コンテナ作成後にコンテナ内で root として一度だけ実行するフック（system gitconfig、`HOST_HOME` の symlink）。本体に sudo は無いので `dcc up` が `compose exec --user root` で呼ぶ。root にも capability は無い（`chown` 不可） |
+| `lifecycle_hooks/postCreate.sh` | コンテナ作成後にコンテナユーザーで一度だけ実行するフック。`dcc up`（root 側の後）と devcontainer の `postCreateCommand` から呼ぶ |
 | `test/dcc.bats` | `dcc` の関数テスト |
 | `AGENTS.md` | Codex など他のエージェント向けの入口。規約の本体はこのファイル（`CLAUDE.md`）で、`AGENTS.md` はここへ案内するだけ。規約を変えるときはこちらを直す |
 | `.env.example` | `DCC_*` の一覧と既定値（これが正） |
@@ -74,6 +75,7 @@ make clean      # 生成物を削除
 理由はそれぞれ括弧内の docs にある。変える必要があるなら、理由を読んでから。
 
 - 本体は非特権。`privileged: true` は `docker` sidecar だけで、そこには秘密情報を一切マウントしない。ホストの `/var/run/docker.sock` は渡さない（`docs/docker.md`）
+- 本体に sudo を入れない。`security_opt: no-new-privileges` と `cap_drop: ALL` を外さない。root が要るコンテナ作成後の処理は `postCreate-root.sh` に置き、`dcc` が `compose exec --user root` で呼ぶ。root にも capability が無いので `chown` は書けず、volume の所有者はイメージ側のディレクトリで用意する（`docs/boundaries.md`）
 - サービス名 `docker` は変えない。sidecar が生成する TLS 証明書の SAN に固定で含まれる（`docs/docker.md`）
 - ワークスペースは本体と `docker` sidecar に**同一パス**（`/workspaces/<basename>`）で bind する。`docker run -v` の bind を解決するのは sidecar の dockerd（`docs/docker.md`）
 - base の `docker-compose.yml` にワークスペースの bind を置かない。devcontainer CLI は compose にワークスペースのパスを渡せない（`docs/devcontainer.md`）

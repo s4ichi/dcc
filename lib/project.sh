@@ -90,13 +90,23 @@ warm_gpg() {
   fi
 }
 
+# コンテナ内でフックを実行する。$1: 実行ユーザー、$2: スクリプト名 (lifecycle_hooks/ 内)、残り: 引数。
+# フックは "<主語>: <述語>" を 1 行ずつ出すので relay でそのまま ▸ 行にする
+run_hook() {
+  local user="$1" script="$2"
+  shift 2
+  compose exec -T --user "$user" --workdir "$REMOTE_WORKSPACE" agent \
+    bash "$REMOTE_HOOKS_DIR/$script" "$@" 2>&1 | relay \
+    || { fail containers "$script failed (rerun with 'dcc up')"; exit 1; }
+}
+
 # コンテナ内で postCreate を一度だけ実行する (マーカーはコンテナローカル。失敗時は次の up で再実行)。
-# postCreate.sh は "<主語>: <述語>" を 1 行ずつ出すので relay でそのまま ▸ 行にする
+# 本体に sudo は無いので、root が要る部分 (postCreate-root.sh) を dcc が root で先に実行し、
+# 残り (postCreate.sh) をコンテナユーザーで実行する
 run_post_create() {
   compose exec -T --user "$REMOTE_USER" agent test -e "$POSTCREATE_MARKER" && return 0
-  compose exec -T --user "$REMOTE_USER" --workdir "$REMOTE_WORKSPACE" agent \
-    bash "$REMOTE_HOOKS_DIR/postCreate.sh" 2>&1 | relay \
-    || { fail containers "postCreate failed (rerun with 'dcc up')"; exit 1; }
+  run_hook root postCreate-root.sh "$REMOTE_USER"
+  run_hook "$REMOTE_USER" postCreate.sh
   compose exec -T --user "$REMOTE_USER" agent touch "$POSTCREATE_MARKER"
 }
 

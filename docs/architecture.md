@@ -27,7 +27,7 @@
 | `dcc` + `lib/*.sh` | ワークスペース単位のライフサイクル CLI（up / exec / stop / clear / recreate / build）。`docker compose` の薄いラッパーで devcontainer CLI には依存しない。`dcc` は入口で、実装は `lib/`（下記「`dcc` の実装」） |
 | `test/dcc.bats` | `dcc` の関数テスト（`make test`）。docker には触らない |
 | `lifecycle_hooks/initialize.sh` | ホスト側の前処理（引数のモジュール名ごとに export / 事前チェック）。`dcc up` と devcontainer の `initializeCommand` から呼ぶ |
-| `lifecycle_hooks/postCreate.sh` | コンテナ作成後フック（コンテナ内で実行）。`dcc` は作成直後に自前で呼び、devcontainer では `postCreateCommand` に書く |
+| `lifecycle_hooks/postCreate-root.sh`、`postCreate.sh` | コンテナ作成後フック（コンテナ内で実行。root で行う部分とコンテナユーザーで行う部分）。`dcc` は作成直後に自前で呼び、devcontainer では `postCreateCommand` に書く |
 | `capabilities/gpg/` | `gpg` モジュールの署名 sidecar（`server.py` が commit / tag に署名）とホスト側スクリプト（`export-host-keys.sh` / `warm.sh`）。[gpg.md](gpg.md) |
 | `capabilities/claude/` | `claude` モジュールの overlay（ホストの `~/.claude` / `~/.claude.json` の bind）。[claude-code.md](claude-code.md) |
 | `capabilities/codex/` | `codex` モジュールの overlay（ホストの `~/.codex` の bind）。[codex.md](codex.md) |
@@ -102,6 +102,9 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
   （`sleep` が PID 1 だと SIGTERM を無視し、grace period の 10 秒待ってから kill される）。
 - `network_mode: service:docker` で sidecar の netns に join する。副作用として `ports` / `hostname` /
   `dns` / `extra_hosts` はこのサービスに書けない。
+- `security_opt: no-new-privileges:true` と `cap_drop: ALL`。イメージに sudo は無く、エージェントのプロセスからは
+  root に上がれない。root が要るコンテナ作成後の処理は `dcc` が `exec --user root` で `postCreate-root.sh` を
+  実行する（下記「ライフサイクルフック」、[boundaries.md](boundaries.md)）。
 - `depends_on: docker: condition: service_started`。netns を join するために sidecar が先に起動していれば
   よく、dockerd の準備完了は待たない（起動直後の数秒は `docker` コマンドが失敗しうる。postCreate は
   docker を使わない）。
@@ -138,7 +141,7 @@ postCreate で更新する Claude Code は固定しない。
 
 | Layer | 内容 |
 |---|---|
-| 1 | APT lean 設定（recommends/suggests/doc/man/locale を除外）、基本パッケージ、コンテナユーザー（既定 `agent`）作成（uid/gid 1000、sudo NOPASSWD） |
+| 1 | APT lean 設定（recommends/suggests/doc/man/locale を除外）、基本パッケージ、コンテナユーザー（既定 `agent`）作成（uid/gid 1000。sudo は入れない）。`~/.claude` / `~/.codex` を所有者付きで作る（空の external volume が初回 mount で所有者を引き継ぐ） |
 | 2 | Docker CLI + buildx + compose plugin（dockerd なし） |
 | 3 | GitHub CLI (`gh`) |
 | 4 | Go（`GO_VERSION` build arg、`GOROOT=/usr/local/go`、`GOPATH=/go`） |
@@ -177,19 +180,30 @@ devcontainer の両方から同じスクリプトを呼ぶ。
 `aws` / `ssh` / `claude` / `codex`: ソースの存在チェック。`gh` は前処理なし）。`dcc up` は選択したモジュール名を渡して呼び、devcontainer では
 `initializeCommand` に書く。
 
-**`postCreate.sh`（コンテナ側）**: `lifecycle_hooks/` を丸ごと `/usr/local/lib/dcc/hooks`
-に read-only bind し、そこから実行する。`dcc up` はコンテナ作成後に `docker compose exec` で一度だけ呼ぶ
-（実行済みはコンテナローカルのマーカー `~/.dcc-postcreate-done` で判定。途中で失敗すればマーカーが無いので
-次の `up` で再実行される）。devcontainer では `postCreateCommand` に同じパスを書く。
-ワークスペースを cwd としてコンテナユーザーで実行され、次を行う:
+**`postCreate-root.sh <user>` / `postCreate.sh`（コンテナ側）**: `lifecycle_hooks/` を丸ごと
+`/usr/local/lib/dcc/hooks` に read-only bind し、そこから実行する。本体に sudo は無く、エージェントのプロセスからは
+root に上がれない（`no-new-privileges` / `cap_drop: ALL`。[boundaries.md](boundaries.md)）ので、root が要る処理と
+コンテナユーザーで行う処理を 2 つのスクリプトに分けている。`dcc up` はコンテナ作成後に `docker compose exec` で
+root 側 → ユーザー側の順に一度だけ呼ぶ（実行済みはコンテナローカルのマーカー `~/.dcc-postcreate-done` で判定。
+途中で失敗すればマーカーが無いので次の `up` で再実行される）。devcontainer では `postCreateCommand` にユーザー側を
+書き、root 側はホストから `docker exec --user root` で一度実行する（[devcontainer.md](devcontainer.md)）。
+どちらもワークスペースを cwd として実行される。
+
+`postCreate-root.sh`（root。capability は無いので `chown` 等はできない）:
+
+1. `~/.claude` / `~/.codex` が volume のとき（モジュール無効）、所有者がコンテナユーザーであることの確認（イメージ側のディレクトリの所有者を
+   空の volume が初回 mount で引き継ぐ。古いイメージで作られた root 所有の volume は作り直す）
+2. `$HOST_HOME` → `$HOME` の symlink 作成（ホストでインストールした plugin の絶対パス解決。[claude-code.md](claude-code.md)）
+3. `git config --system --add safe.directory <workspace>`（[git.md](git.md)）
+4. `gpg.program` に gpg-sign-client を登録（wrapper の mount がある = `gpg` 有効時のみ。[gpg.md](gpg.md)）
+5. `credential.https://<host>.helper` に gh-token client を登録（client の mount がある = `gh` 有効時のみ。[github.md](github.md)）
+
+`postCreate.sh`（コンテナユーザー）:
 
 1. `claude update`（焼き込み版をコンテナ層で最新化。recreate で焼き込み版に戻る。失敗は警告のみ）
-2. `~/.claude` の初期化。`claude` 有効時は `~/.claude.json.host` → `~/.claude.json` のコピー、無効時は volume の所有者修正のみ（[claude-code.md](claude-code.md)）。
-   `~/.codex` も同様に、`codex` 無効時だけ volume の所有者を直す（[codex.md](codex.md)。Codex はここでは更新しない）
-3. `$HOST_HOME` → `$HOME` の symlink 作成（ホストでインストールした plugin の絶対パス解決。[claude-code.md](claude-code.md)）
-4. `git config --system --add safe.directory <workspace>`（[git.md](git.md)）
-5. 検証用 keyring の構築と `gpg.program` の登録（`~/.gnupg-host` がある = `gpg` 有効時のみ。[gpg.md](gpg.md)）
-6. `credential.https://<host>.helper` に gh-token client を登録（client の mount がある = `gh` 有効時のみ。[github.md](github.md)）
+2. `~/.claude` の初期化。`claude` 有効時は `~/.claude.json.host` → `~/.claude.json` のコピー、無効時は volume の `chmod 700` のみ（[claude-code.md](claude-code.md)）。
+   `~/.codex` も同様（[codex.md](codex.md)。Codex はここでは更新しない）
+3. 検証用 keyring の構築（`~/.gnupg-host` がある = `gpg` 有効時のみ。[gpg.md](gpg.md)）
 
 ## CLI
 
@@ -215,7 +229,7 @@ dcc [command] [workspace] [options] [args...]
 | コマンド | 動作 |
 |---|---|
 | `dcc`（デフォルト） | `up` → gpg warm（`gpg` 有効時） → エージェントを exec |
-| `dcc up` | `initialize.sh <選択モジュール>` → drift の検査 → （必要なら volume `dcc-claude-home` / `dcc-codex-home` / `dcc-gh-home` の作成、base イメージの build）→ `docker compose -f base -f workspace -f <overlay>… [-f local/compose.yml] [-f $DCC_COMPOSE_FILES] up -d --no-recreate` → 未実行なら `postCreate.sh` |
+| `dcc up` | `initialize.sh <選択モジュール>` → drift の検査 → （必要なら volume `dcc-claude-home` / `dcc-codex-home` / `dcc-gh-home` の作成、base イメージの build）→ `docker compose -f base -f workspace -f <overlay>… [-f local/compose.yml] [-f $DCC_COMPOSE_FILES] up -d --no-recreate` → 未実行なら `postCreate-root.sh`（root）→ `postCreate.sh`（コンテナユーザー） |
 | `dcc exec [args]` | `up` → gpg warm（`capabilities/gpg/warm.sh`） → `docker compose exec -u agent -w /workspaces/<name> agent <claude\|codex> [既定引数] [args]` |
 | `dcc creds` | モジュール一覧、既定値、今回の解決結果、実行中コンテナの選択を表示 |
 | `dcc gh-login [args]` | volume `dcc-gh-home` を用意し（無ければ `dcc-gh-token:local` も build）、`docker run --rm -it -v dcc-gh-home:… dcc-gh-token:local auth login --hostname <DCC_GH_HOST> --expiring --git-protocol ssh --skip-ssh-key [args]` → `auth status`。ワークスペースのコンテナには依存しない（[github.md](github.md)） |

@@ -83,7 +83,7 @@ base の volume と同じ target `/home/agent/.codex` を bind で上書きす�
 | volume `dcc-codex-home`（`DCC_CODEX_HOME_VOLUME`。external、全ワークスペース共有） | `/home/agent/.codex/` | rw | 空で始まる。認証情報と履歴はここに残る |
 
 `dcc up` が volume を無ければ作る（external なので compose は作らない。devcontainer からは `docker volume create dcc-codex-home`）。
-base の compose が参照するので、**Codex を使わない場合もこの volume は作られる**（空のまま）。postCreate は volume の所有者を直すだけ。
+base の compose が参照するので、**Codex を使わない場合もこの volume は作られる**（空のまま）。所有者はイメージの `~/.codex`（コンテナユーザー所有）を初回 mount で引き継ぎ、postCreate はそれを確認して `chmod 700` するだけ。
 
 ### 起動と既定引数
 

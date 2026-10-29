@@ -30,8 +30,11 @@ ENV PATH=/home/${USERNAME}/.local/bin:/usr/local/go/bin:/go/bin:$PATH
 # Layer 1: APT lean config + base packages + container user
 #
 # recommends / suggests / doc / man / locale を入れずにイメージを小さく保つ。
-# ユーザーは sudo NOPASSWD (postCreate が system gitconfig などを書く)。境界はコンテナの外枠で引くので、
-# コンテナ内の root 権限は許容している (docs/boundaries.md)。
+# sudo は入れない。コンテナ内で root が要る処理 (system gitconfig など) は lifecycle_hooks/postCreate-root.sh に
+# 置き、dcc が `compose exec --user root` で呼ぶ。compose 側で no-new-privileges と cap_drop ALL を付けるので、
+# エージェントのプロセスからは root に上がれない (docs/boundaries.md)。
+# ~/.claude と ~/.codex はここで作って所有者を付けておく。空の named volume は初回 mount でこのディレクトリの
+# 所有者とモードを引き継ぐので、postCreate で chown しなくてよい (root は CAP_CHOWN を持たない)。
 RUN set -eux; \
     { \
       echo 'APT::Install-Recommends "false";'; \
@@ -74,7 +77,6 @@ RUN set -eux; \
       python3-venv \
       rsync \
       strace \
-      sudo \
       tree \
       unzip \
       wget \
@@ -92,8 +94,8 @@ RUN set -eux; \
         --shell /bin/bash \
         "${USERNAME}"; \
     fi; \
-    echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > "/etc/sudoers.d/${USERNAME}"; \
-    chmod 0440 "/etc/sudoers.d/${USERNAME}"
+    install -d -m 0700 -o "${USERNAME}" -g "${USER_GID}" \
+      "/home/${USERNAME}/.claude" "/home/${USERNAME}/.codex"
 
 # Layer 2: Docker CLI (+ buildx / compose plugin)
 #
