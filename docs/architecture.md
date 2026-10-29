@@ -123,7 +123,7 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 
 詳細は [docker.md](docker.md)。要点:
 
-- `docker:<ver>-dind-rootless`。dockerd は uid 1000 の rootless。
+- `docker:<ver>-dind-rootless@sha256:<digest>`（digest で固定。[docker.md](docker.md)）。dockerd は uid 1000 の rootless。
 - `privileged: true` はこのサービスにだけ付ける。秘密情報は一切マウントしない。
 - `sysctls: net.ipv4.ip_unprivileged_port_start=0` で 1024 未満のポート公開を許可。
 - volume: ワークスペース（workspace overlay。本体と同一パス）、`docker-certs`、`docker-data`。

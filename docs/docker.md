@@ -67,4 +67,7 @@
 - **sidecar だけを再起動しない。** 本体の netns は sidecar の sandbox に紐づいており、sidecar が再作成されると本体が消えた netns に取り残される。`dcc recreate` で復旧する。`dcc stop` → `dcc up` は安全
 - rootless の制約: systemd が無いため cgroup v2 の delegation ができず、`--memory` / `--cpus` / `--pids-limit` は無視される（警告のみ）。inner container の `--privileged` / `--cap-add SYS_ADMIN` は userns 内の CAP でしかなく、デバイス・カーネルパラメータには触れない。overlay2 は fuse-overlayfs または userns 対応の kernel overlay で動き、パフォーマンスはホストの Docker より落ちる
 - inner container → 本体のサービスへ `host.docker.internal` 相当では繋げない。Docker network 経由で本体と同じ netns の IP を使うか、本体側で `0.0.0.0` を listen して sidecar の IP で繋ぐ
-- `docker:dind-rootless` のバージョン固定は `DCC_DIND_IMAGE`（[customization.md](customization.md)）。変更後は `dcc recreate`
+- イメージは `docker:<ver>-dind-rootless@sha256:<index digest>` で固定している（`template.jsonnet` の既定値。唯一の privileged
+  コンテナなので、floating タグで知らないうちに中身が変わらないようにする）。上げるときは
+  `docker buildx imagetools inspect docker:<ver>-dind-rootless` で index の digest を取り、`template.jsonnet` / `.env.example` /
+  [customization.md](customization.md) の既定値を揃えて `make generate`。利用者が変えるなら `DCC_DIND_IMAGE`。変更後は `dcc recreate`

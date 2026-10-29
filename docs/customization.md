@@ -30,7 +30,7 @@
 | `DCC_USER` / `DCC_UID` / `DCC_GID` | `agent` / `1000` / `$DCC_UID` | コンテナ内ユーザー。Dockerfile の build arg に渡る。Linux ホストで uid ≠ 1000 のときに合わせる |
 | `DCC_IMAGE` | `dcc:local` | 本体イメージのタグ（全ワークスペースで共有。ユーザー / uid を変えたら別タグにする） |
 | `DCC_BASE_IMAGE` | `dcc:base` | `local/Dockerfile` 使用時の base イメージ（このリポジトリの Dockerfile）のタグ。変えたら `FROM` も合わせる |
-| `DCC_DIND_IMAGE` | `docker:dind-rootless` | Docker sidecar のイメージ（バージョン固定など） |
+| `DCC_DIND_IMAGE` | `docker:29.9.2-dind-rootless@sha256:…`（[`.env.example`](../.env.example) が正） | Docker sidecar のイメージ。唯一の privileged コンテナなので digest で固定している（[docker.md](docker.md)） |
 | `DCC_GO_VERSION` | Dockerfile の既定 | 本体イメージの Go バージョン（build arg） |
 | `DCC_TZ` | `$TZ`、無ければ `UTC` | 本体のタイムゾーン |
 | `DCC_CONTAINER_ENV_<NAME>` | なし | コンテナ内の環境変数 `NAME` として渡す（例: `DCC_CONTAINER_ENV_GOPRIVATE`）。コンテナ作成時に固定（下記） |

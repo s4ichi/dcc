@@ -41,7 +41,10 @@ local agentImage = '${DCC_IMAGE:-dcc:local}';
 local baseImage = '${DCC_BASE_IMAGE:-dcc:base}';
 local buildContext = '${DCC_BUILD_CONTEXT:-' + configDir + '}';
 local dockerfile = '${DCC_DOCKERFILE:-Dockerfile}';
-local dindImage = '${DCC_DIND_IMAGE:-docker:dind-rootless}';
+// 唯一の privileged コンテナなので digest で固定する (タグは可読性のためで、pull は digest で決まる)。
+// 上げるときは `docker buildx imagetools inspect docker:<ver>-dind-rootless` の index digest に書き換え、
+// .env.example と docs/customization.md の既定値も揃える。docs/docker.md
+local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.2-dind-rootless@sha256:ae083cc7de51e7a8e5a597f8fb774ca7914c408a95fc0f1477826a913479518a}';
 local goVersion = '${DCC_GO_VERSION:-1.26.3}';
 
 local buildArgs = {

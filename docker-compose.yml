@@ -56,7 +56,7 @@ services:
   docker:
     environment:
       DOCKER_TLS_CERTDIR: "/certs"
-    image: "${DCC_DIND_IMAGE:-docker:dind-rootless}"
+    image: "${DCC_DIND_IMAGE:-docker:29.9.2-dind-rootless@sha256:ae083cc7de51e7a8e5a597f8fb774ca7914c408a95fc0f1477826a913479518a}"
     privileged: true
     sysctls:
       net.ipv4.ip_unprivileged_port_start: 0
