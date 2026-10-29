@@ -8,7 +8,10 @@
 #   USERNAME / USER_UID / USER_GID  ← DCC_USER / DCC_UID / DCC_GID
 #   GO_VERSION                      ← DCC_GO_VERSION
 # ダウンロードするツールの版は各レイヤ直前の ARG で固定する (latest を取らず、同じ Dockerfile なら同じ版になる)。
-# 上げるときは ARG の既定値を書き換える。apt で入れるもの (Docker CLI / gh / Corretto など) は固定しない。
+# 取得物は sha256 で照合する。配布元が checksum ファイルを公開しているもの (Go / yq / uv / Codex) はそれと照合し
+# (同一オリジンなので、検知できるのは破損と転送経路での差し替え)、無いもの (duckdb / AWS CLI / Volta / d2 /
+# Claude Code の install.sh) は ARG に sha256 を書いて照合する。版を上げるときは ARG の既定値と sha256 を書き換える。
+# apt で入れるもの (Docker CLI / gh / Corretto など) は apt の署名検証に任せ、版は固定しない。
 # 個人のツールはこのファイルを編集せず、`FROM dcc:base` する local/Dockerfile で足す
 # (docs/customization.md)。
 
@@ -137,8 +140,11 @@ RUN set -eux; \
       i686)    goarch=386 ;; \
       *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
     esac; \
-    curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${goarch}.tar.gz" \
-      | tar -xz -C /usr/local; \
+    url="https://dl.google.com/go/go${GO_VERSION}.linux-${goarch}.tar.gz"; \
+    curl -fsSL -o /tmp/go.tgz "${url}"; \
+    echo "$(curl -fsSL "${url}.sha256")  /tmp/go.tgz" | sha256sum -c -; \
+    tar -xz -C /usr/local -f /tmp/go.tgz; \
+    rm -f /tmp/go.tgz; \
     mkdir -p /go/bin; \
     chown -R "${USERNAME}:${USERNAME}" /go
 
@@ -149,8 +155,17 @@ RUN set -eux; \
 # /usr/local/bin に置くと "~/.local/bin/claude missing or broken" の警告が出る。
 # ここで入る版が正で volume にはしない。postCreate の `claude update` がコンテナ層で最新化する
 # (docs/claude-code.md)。~/.local/bin は上の ENV PATH で通してある (非対話シェルでも解決できる)。
+# install.sh は `curl | bash` せず、sha256 を照合してから CLAUDE_CODE_VERSION を引数に実行する。
+# install.sh 自身はバイナリを配布元の manifest の checksum で検証する。sha256 は配布元が install.sh を更新すると
+# 変わるので、build が失敗したら `curl -fsSL https://claude.ai/install.sh | sha256sum` で取り直して差分を確認する。
+ARG CLAUDE_CODE_VERSION=2.1.308
+ARG CLAUDE_INSTALL_SHA256=3a68d3406cf674e17bed1733a4dcf37805e2e47d87417700007d7e1aa766a944
 RUN set -eux; \
-    su - "${USERNAME}" -c 'curl -fsSL https://claude.ai/install.sh | bash'; \
+    curl -fsSL -o /tmp/claude-install.sh https://claude.ai/install.sh; \
+    echo "${CLAUDE_INSTALL_SHA256}  /tmp/claude-install.sh" | sha256sum -c -; \
+    chmod 0644 /tmp/claude-install.sh; \
+    su - "${USERNAME}" -c "bash /tmp/claude-install.sh ${CLAUDE_CODE_VERSION}"; \
+    rm -f /tmp/claude-install.sh; \
     chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.local"; \
     test -x "/home/${USERNAME}/.local/bin/claude"
 
@@ -163,21 +178,30 @@ RUN set -eux; \
       aarch64) yqarch=arm64 ;; \
       *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${yqarch}" \
-      -o /usr/local/bin/yq; \
-    chmod 0755 /usr/local/bin/yq
+    base="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}"; \
+    mkdir -p /tmp/yq; \
+    cd /tmp/yq; \
+    curl -fsSL -O "${base}/yq_linux_${yqarch}"; \
+    curl -fsSL -O "${base}/checksums-bsd"; \
+    grep -E "^SHA256 \(yq_linux_${yqarch}\) = " checksums-bsd | sha256sum -c -; \
+    install -m 0755 "yq_linux_${yqarch}" /usr/local/bin/yq; \
+    cd /; \
+    rm -rf /tmp/yq
 
 # Layer 7: duckdb CLI
 ARG DUCKDB_VERSION=v1.5.6
+ARG DUCKDB_SHA256_AMD64=6e89deac1ebbc36eed0291caf8b567b030c7b86ac35998f71854e22b3c5d5e2f
+ARG DUCKDB_SHA256_ARM64=c544e92c9b7c31fc53c2139802cabd8e2d1b2b3e3f933117f31611239c1402db
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
-      x86_64)  ddbarch=amd64 ;; \
-      aarch64) ddbarch=arm64 ;; \
+      x86_64)  ddbarch=amd64; sha="${DUCKDB_SHA256_AMD64}" ;; \
+      aarch64) ddbarch=arm64; sha="${DUCKDB_SHA256_ARM64}" ;; \
       *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
     esac; \
     curl -fsSL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb_cli-linux-${ddbarch}.zip" \
       -o /tmp/duckdb.zip; \
+    echo "${sha}  /tmp/duckdb.zip" | sha256sum -c -; \
     unzip -q /tmp/duckdb.zip -d /usr/local/bin; \
     chmod 0755 /usr/local/bin/duckdb; \
     rm -f /tmp/duckdb.zip
@@ -198,15 +222,18 @@ RUN set -eux; \
 
 # Layer 9: AWS CLI v2
 ARG AWSCLI_VERSION=2.38.1
+ARG AWSCLI_SHA256_X86_64=b11ed416d91f4251da363a17706938eeaf0e520745754c104c0c1890dd8363c7
+ARG AWSCLI_SHA256_AARCH64=91360c0adb2ae508334ff657dce4787b598b443a11cf3dc58e08b74f12e16009
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
-      x86_64)  awsarch=x86_64 ;; \
-      aarch64) awsarch=aarch64 ;; \
+      x86_64)  awsarch=x86_64; sha="${AWSCLI_SHA256_X86_64}" ;; \
+      aarch64) awsarch=aarch64; sha="${AWSCLI_SHA256_AARCH64}" ;; \
       *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
     esac; \
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${awsarch}-${AWSCLI_VERSION}.zip" \
       -o /tmp/awscliv2.zip; \
+    echo "${sha}  /tmp/awscliv2.zip" | sha256sum -c -; \
     unzip -q /tmp/awscliv2.zip -d /tmp; \
     /tmp/aws/install; \
     rm -rf /tmp/awscliv2.zip /tmp/aws; \
@@ -221,8 +248,16 @@ RUN set -eux; \
       aarch64) uvarch=aarch64 ;; \
       *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${uvarch}-unknown-linux-gnu.tar.gz" \
-      | tar -xz --strip-components=1 -C /usr/local/bin; \
+    base="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}"; \
+    tgz="uv-${uvarch}-unknown-linux-gnu.tar.gz"; \
+    mkdir -p /tmp/uv; \
+    cd /tmp/uv; \
+    curl -fsSL -O "${base}/${tgz}"; \
+    curl -fsSL -O "${base}/${tgz}.sha256"; \
+    sha256sum -c "${tgz}.sha256"; \
+    tar -xz --strip-components=1 -C /usr/local/bin -f "${tgz}"; \
+    cd /; \
+    rm -rf /tmp/uv; \
     chmod 0755 /usr/local/bin/uv /usr/local/bin/uvx; \
     uv --version
 
@@ -256,16 +291,30 @@ RUN set -eux; \
 # Layer 12: Volta + Node.js (既定の node は LTS の固定版)
 #
 # Volta はコンテナのユーザーとして ~/.volta に入れる。版の追加・切り替え (`volta install node@<ver>`) と
-# npm の global install が sudo なしで済む。installer は get.volta.sh (常に最新) ではなく VOLTA_VERSION の
-# タグのものを使い、--skip-setup で shell profile を書き換えない。PATH は ENV で通す (非対話シェルでも
-# shim を解決できる)。package.json の volta.node で版を固定したプロジェクトでは shim がそちらに従う。
+# npm の global install が root なしで済む。installer (volta-install.sh) は使わず、リリースの tarball を sha256 で
+# 照合して ~/.volta/bin に展開する (installer がすることはそれだけで、shell profile の書き換えは --skip-setup で
+# 元から外していた)。PATH は ENV で通す (非対話シェルでも shim を解決できる)。package.json の volta.node で版を
+# 固定したプロジェクトでは shim がそちらに従う。aarch64 のアーカイブ名は `linux-arm`。
 ARG VOLTA_VERSION=2.0.2
+ARG VOLTA_SHA256_X86_64=6cec054c911fb925b629a09455775af6e95dc0f5694a4c28b63979ab9ef18037
+ARG VOLTA_SHA256_AARCH64=1eb92f8b711753aa576352b2e580b2f3fdadeab8664929ca1da3d0de65448517
 ARG NODE_VERSION=24.22.0
 ENV VOLTA_HOME=/home/${USERNAME}/.volta
 ENV PATH=${VOLTA_HOME}/bin:$PATH
 RUN set -eux; \
-    su - "${USERNAME}" -c "curl -fsSL https://raw.githubusercontent.com/volta-cli/volta/v${VOLTA_VERSION}/dev/unix/volta-install.sh \
-      | VOLTA_HOME=${VOLTA_HOME} bash -s -- --skip-setup --version ${VOLTA_VERSION}"; \
+    arch="$(uname -m)"; \
+    case "${arch}" in \
+      x86_64)  voltaos=linux; sha="${VOLTA_SHA256_X86_64}" ;; \
+      aarch64) voltaos=linux-arm; sha="${VOLTA_SHA256_AARCH64}" ;; \
+      *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/volta-cli/volta/releases/download/v${VOLTA_VERSION}/volta-${VOLTA_VERSION}-${voltaos}.tar.gz" \
+      -o /tmp/volta.tgz; \
+    echo "${sha}  /tmp/volta.tgz" | sha256sum -c -; \
+    install -d -o "${USERNAME}" -g "${USER_GID}" "${VOLTA_HOME}" "${VOLTA_HOME}/bin"; \
+    tar -xz -C "${VOLTA_HOME}/bin" -f /tmp/volta.tgz; \
+    chown -R "${USERNAME}:${USER_GID}" "${VOLTA_HOME}"; \
+    rm -f /tmp/volta.tgz; \
     su - "${USERNAME}" -c "VOLTA_HOME=${VOLTA_HOME} PATH=${VOLTA_HOME}/bin:\$PATH volta install node@${NODE_VERSION}"; \
     test -x "${VOLTA_HOME}/bin/node"; \
     node --version; \
@@ -326,17 +375,21 @@ RUN set -eux; \
 #
 # ソースからビルドせず配布バイナリを使う (同梱のレイアウトエンジンを配布物と揃える)。
 ARG D2_VERSION=v0.9.0
+ARG D2_SHA256_AMD64=5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9
+ARG D2_SHA256_ARM64=ac2c028697199479acb321db1e3d68caee9f2ba492ed73caa3cd13f3829bf913
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
-      x86_64)  d2arch=amd64 ;; \
-      aarch64) d2arch=arm64 ;; \
+      x86_64)  d2arch=amd64; sha="${D2_SHA256_AMD64}" ;; \
+      aarch64) d2arch=arm64; sha="${D2_SHA256_ARM64}" ;; \
       *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
     esac; \
     curl -fsSL "https://github.com/terrastruct/d2/releases/download/${D2_VERSION}/d2-${D2_VERSION}-linux-${d2arch}.tar.gz" \
-      | tar -xz -C /tmp; \
+      -o /tmp/d2.tgz; \
+    echo "${sha}  /tmp/d2.tgz" | sha256sum -c -; \
+    tar -xz -C /tmp -f /tmp/d2.tgz; \
     install -m 0755 "/tmp/d2-${D2_VERSION}/bin/d2" /usr/local/bin/d2; \
-    rm -rf "/tmp/d2-${D2_VERSION}"; \
+    rm -rf "/tmp/d2-${D2_VERSION}" /tmp/d2.tgz; \
     d2 --version
 
 USER ${USERNAME}

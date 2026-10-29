@@ -66,7 +66,7 @@ base の volume と同じ target `/home/agent/.claude` を bind で上書きす�
 
 ### `claude` 本体のインストール場所
 
-Dockerfile でコンテナユーザーとして `install.sh` を実行し `~/.local/bin/claude` に置く。Claude Code の自動更新・`claude doctor` はこの場所を「管理インストール」として扱うため、root で `/usr/local/bin` に置くと "missing or broken" 警告が出る。
+Dockerfile で `install.sh` を sha256 照合してからコンテナユーザーとして実行し（版は `CLAUDE_CODE_VERSION`。[architecture.md](architecture.md)）、`~/.local/bin/claude` に置く。Claude Code の自動更新・`claude doctor` はこの場所を「管理インストール」として扱うため、root で `/usr/local/bin` に置くと "missing or broken" 警告が出る。
 
 実体（`~/.local/share/claude/versions/<ver>`）と `~/.local/bin/claude` の symlink はどちらもイメージの焼き込み版が正で、volume にはしない。自動更新と postCreate の `claude update` の結果はコンテナ層に残り、`dcc recreate` で焼き込み版に戻る（そのとき postCreate がまた最新化する。差分は 1 回分のダウンロードだけ）。実体だけを named volume に置く構成は採らない。volume は初回しかシードされないため、イメージを rebuild して同梱版が上がると volume 外の symlink の指し先が volume に無くなり、`claude` が実行できなくなる（`executable file not found in $PATH`）。同じものをイメージと volume の 2 か所に持たないことでこの食い違いを無くしている。
 

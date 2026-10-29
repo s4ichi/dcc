@@ -135,9 +135,12 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
 
 GitHub Releases などから取るツールの版は、各レイヤ直前の `ARG`（`YQ_VERSION` / `DUCKDB_VERSION` /
 `JSONNET_VERSION` / `AWSCLI_VERSION` / `UV_VERSION` / `CODEX_VERSION` / `VOLTA_VERSION` / `NODE_VERSION` /
-`D2_VERSION`）の既定値で固定し、`latest` は取らない（同じ Dockerfile なら build のたびに同じ版になる）。
-上げるときは既定値を書き換える。apt で入れるもの（Docker CLI / `gh` / Corretto / Debian のパッケージ）と、
-postCreate で更新する Claude Code は固定しない。
+`D2_VERSION` / `CLAUDE_CODE_VERSION`）の既定値で固定し、`latest` は取らない（同じ Dockerfile なら build のたびに
+同じ版になる）。取得物は sha256 で照合する: 配布元が checksum ファイルを公開しているもの（Go / `yq` / `uv` / Codex）は
+それと照合し（同一オリジンなので、検知できるのは破損と転送経路での差し替え）、無いもの（`duckdb` / AWS CLI / Volta /
+`d2` / Claude Code の `install.sh`）は `ARG` に sha256 を持つ（`*_SHA256_*`）。上げるときは版と sha256 の既定値を
+書き換える。apt で入れるもの（Docker CLI / `gh` / Corretto / Debian のパッケージ）は apt の署名検証に任せて固定しない。
+Claude Code はイメージの版を `CLAUDE_CODE_VERSION` で固定するが、postCreate の `claude update` がコンテナ層で最新化する。
 
 | Layer | 内容 |
 |---|---|
@@ -145,14 +148,14 @@ postCreate で更新する Claude Code は固定しない。
 | 2 | Docker CLI + buildx + compose plugin（dockerd なし） |
 | 3 | GitHub CLI (`gh`) |
 | 4 | Go（`GO_VERSION` build arg、`GOROOT=/usr/local/go`、`GOPATH=/go`） |
-| 5 | Claude Code CLI（コンテナユーザーとして `install.sh` を実行し `~/.local/bin/claude` に配置。自動更新・doctor がこの場所を管理インストールとして扱う） |
+| 5 | Claude Code CLI（`install.sh` を sha256 照合のうえコンテナユーザーとして `CLAUDE_CODE_VERSION` を指定して実行し `~/.local/bin/claude` に配置。自動更新・doctor がこの場所を管理インストールとして扱う） |
 | 6 | `yq` |
 | 7 | `duckdb` CLI |
 | 8 | `jsonnet` / `jsonnetfmt`（go-jsonnet を Go でビルド） |
 | 9 | AWS CLI v2 |
 | 10 | `uv` / `uvx` |
 | 11 | Codex CLI（GitHub Releases の `codex-package-<target>.tar.gz` を `codex-package_SHA256SUMS` で検証して `/opt/codex` に展開し、`/usr/local/bin/codex` に symlink。`bwrap` と `rg` を同梱。Node は不要。更新はイメージの rebuild。[codex.md](codex.md)） |
-| 12 | Volta と Node.js（既定の `node` は `NODE_VERSION` の LTS）。コンテナユーザーとして `~/.volta`（`VOLTA_HOME`）に入れ、`~/.volta/bin` を `PATH` に通す。版の追加・切り替えは `volta install node@<ver>`、プロジェクトの `package.json` の `volta.node` があればそちらに従う。コンテナ内での追加はコンテナ層に載るので recreate で消える |
+| 12 | Volta と Node.js（既定の `node` は `NODE_VERSION` の LTS）。リリースの tarball を sha256 照合して `~/.volta/bin`（`VOLTA_HOME`）に展開し、`~/.volta/bin` を `PATH` に通す。版の追加・切り替えは `volta install node@<ver>`、プロジェクトの `package.json` の `volta.node` があればそちらに従う。コンテナ内での追加はコンテナ層に載るので recreate で消える |
 | 13 | headless Chromium の実行に要る共有ライブラリとフォント（Liberation / Noto CJK / Noto Color Emoji）。ブラウザ本体は入れない（Playwright などがライブラリの版に合うビルドを `~/.cache` に取得する） |
 | 14 | Java（Amazon Corretto 21 LTS。Corretto の apt リポジトリから） |
 | 15 | `d2`（配布バイナリ） |
