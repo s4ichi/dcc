@@ -73,6 +73,9 @@ sidecar は自前の `server.py` しか動かさず、access log は method / pa
 
 - ホストで `aws login` 済みであることが前提。期限切れなら endpoint は 503 を返す。ホストで再ログインすれば sidecar の再起動なしに次のリクエストから復旧する
 - 一時 credential は本体内の全プロセスから読める。持ち出されれば失効まで使える
+- sidecar は `export-credentials` の結果が一時 credential かどうかを検査しない。profile に静的な access key が書かれていれば
+  （`~/.aws/config` の `aws_access_key_id` 等）、`Expiration` の無い長期鍵がそのまま本体に渡る。「長期鍵は漏れない」は
+  profile が login / SSO / assume-role 系であることが前提
 - `~/.aws/login/cache` が ro のため、CLI が refresh token を書き戻す必要のあるフローで失敗する可能性がある（未検証。問題になれば `login/cache` だけ rw にするトレードオフ）
 - SSO profile（`aws sso login`）と `credential_process` で外部コマンドを呼ぶ profile は、sidecar に渡していない / コマンドが無いため動かない。必要なら `local/compose.yml` で足す
 - inner container からは endpoint が見えない（親 netns の `127.0.0.1` に届かない）。inner container に AWS 権限を渡すには明示的に環境変数等で渡すしかない

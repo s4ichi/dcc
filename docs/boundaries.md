@@ -128,7 +128,13 @@ Docker sidecar（`privileged`）にはホストの `$HOME` 配下を一切渡さ
   制限したい場合は Docker ランタイムやホスト側のネットワークで行う
 - **ワークスペース。** rw の bind なので、コンテナ内の操作はそのままホストのファイルに反映される。ワークスペース内の
   秘密情報（`.env` など）は本体から読める。ホストで実行されるファイル（git hooks、ビルドスクリプト、エディタの設定）を
-  書き換えられる点にも注意する
+  書き換えられる点にも注意する。書き込みはコンテナユーザー（uid `DCC_UID`、既定 1000）として行われ、Linux ホストでは
+  その uid のファイルになる（root では書けない。上記「本体コンテナ内の権限」）
+- **このリポジトリ自身（`DCC_CONFIG_DIR`）をワークスペースにしたとき。** `dcc` / `lib/*.sh` / `.env`（bash として source される）/
+  `lifecycle_hooks/initialize.sh` / `capabilities/gpg/*.sh` はホストで実行され、`capabilities/*/Dockerfile` と `server.py` は
+  秘密情報を持つ sidecar のイメージになる。これらが rw のワークスペースとしてコンテナに見えている間は、本体が書いた変更が
+  次の `dcc` 実行でホスト上と sidecar 内で動く。つまり境界は無い。このリポジトリを `dcc` の中で編集するなら、
+  `--no-creds` にし、ホストで `git diff` を見てから `dcc` を実行する。モジュールを有効にしたまま開かない
 - **本体に渡した credential の利用。** 代行実行でも「署名させる」「一時 credential を取る」こと自体は本体から自由にできる。
   専用の鍵（`ssh`）と、失効前の access token（`gh`）は読み出せる。被害の上限は各ページの「侵害時に漏れるもの」のとおり
 - **本体コンテナ内の権限。** コンテナユーザー（`agent`）は root に上がれない（sudo なし、`no-new-privileges` で setuid / file capability が

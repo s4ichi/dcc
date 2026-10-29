@@ -92,3 +92,4 @@ make clean      # 生成物を削除
 - compose ファイルやイメージの変更は既存コンテナに反映されない（`dcc up` は `--no-recreate`）。`dcc recreate` する
 - `docker` sidecar だけを再起動しない。本体の netns が古い sandbox に取り残されて Docker に繋がらなくなる。復旧は `dcc recreate`
 - このリポジトリ自体を `dcc` のコンテナ内で編集している場合、コンテナ内の `docker` は sidecar の dockerd で、ホストの `dcc` が作ったコンテナは見えない。`dcc up` などの動作確認はホスト側で行う
+- このリポジトリをワークスペースにすると境界は無くなる（`dcc` / `lib` / `.env` / フック / sidecar のソースがホストと sidecar で実行される）。開くなら `--no-creds` で、ホストで `git diff` を確認してから次の `dcc` を実行する（`docs/boundaries.md` の「この設計が守らないもの」）

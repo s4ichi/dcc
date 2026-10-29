@@ -99,3 +99,6 @@ git commit -S
 - ホストで鍵を追加・変更した場合、export は `dcc up` で更新されるが sidecar の keyring は起動時構築なので `dcc recreate` が必要
 - `gnupg-host/` は gitignore 済み。`pubkeys.asc` は公開鍵、`keygrips.txt` は鍵の識別子で、名前・メールアドレスを含む。gpg-agent の TTL（400 日）はポリシーによっては短くする
 - 署名済み push（`push.gpgSign`）は未対応（payload の形式検証で弾く）
+- sidecar には `private-keys-v1.d` 全体が ro で見えている（keyring に組み込むのは署名鍵の keygrip だけ）。sidecar 自体
+  （`server.py`、root で動く）が侵害された場合に読めるのは署名鍵 1 本ではなくホストの全秘密鍵（パスフレーズで暗号化済み）。
+  本体からは sidecar のファイルシステムに届かないので、本体の侵害だけではこの範囲に広がらない
