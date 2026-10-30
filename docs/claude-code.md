@@ -41,6 +41,7 @@
 - **token だけ切り出さない**: `.credentials.json` を single-file bind すると EXDEV 問題を踏み、コピーだと refresh token の回転でホスト側が無効になる。認証はコンテナ側で独立に持つ
 - **`~/.claude.json` は single-file bind しない**: Claude Code はこのファイルを atomic write（一時ファイルに書いて `rename`）する。single-file bind はマウントポイントなので `rename` が cross-device（EXDEV）で失敗し、設定が壊れる。ro で `.host` として渡し、postCreate がコピーする
 - **Keychain を渡さない**: コンテナは Linux で Keychain が無く、Claude Code にも export する手段が無い。ホストとコンテナで token を別系統にする方が境界として素直で、コンテナ側は独立に失効できる（[mcp.md](mcp.md)）
+- **ワークスペースは trust 済みにする**: trust の承認は `~/.claude.json`（コンテナローカル）に記録されるため、`dcc recreate` のたびに消えて確認が出直す。ワークスペースはコンテナに入れた時点で開くと決めたものとみなし、postCreate が `projects["/workspaces/<basename>"].hasTrustDialogAccepted` を立てる
 - **ホストの絶対パスを symlink で解決する**: `plugins/installed_plugins.json` 等にはインストール時のホストの絶対パス（`/Users/<user>/...`）が書かれており、コンテナの `$HOME` では解決できない。postCreate が `HOST_HOME → $HOME` の symlink を作る。副作用はコンテナ内に `/Users/<user>` が現れることだけ
 
 ## 仕組み
@@ -81,4 +82,5 @@ Dockerfile で `install.sh` を sha256 照合してからコンテナユーザ�
 - `projects/` のキーはワークスペースの絶対パス。ホストでは `/Users/<user>/src/foo`、コンテナでは `/workspaces/foo` になるため、共有していても同じワークスペースの履歴は別のキーに保存される（`--resume` で互いのセッションは一覧に出ない）
 - `settings.json` 内のパス（hooks のコマンドパスなど）がホスト固有だとコンテナで動かない
 - 同時にホストとコンテナで Claude Code を動かすと、共有時は `settings.json` 等の書き込みが競合しうる
+- ワークスペースは常に trust 済みで起動するため、リポジトリの `.claude/settings.json`（hooks、permissions）や `.mcp.json` は確認なしで有効になる。知らないリポジトリを開くときは、先にホストで中身を確認する。モジュール有効時は、それらの hooks がホストと共有している `~/.claude` に書き込める
 - `~/.claude.json` にも認証情報（旧形式の `oauthAccount` 等）が含まれることがある。共有時は ro とはいえコンテナに渡っている

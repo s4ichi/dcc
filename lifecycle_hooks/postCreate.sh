@@ -32,6 +32,14 @@ else
   echo "~/.claude: on volume dcc-claude-home (claude module off)"
 fi
 
+# ワークスペースを trust 済みにする。~/.claude.json はコンテナローカルなので、承認しても recreate で消えて
+# 毎回確認が出る。コンテナ自体を境界とみなし、確認は省く (docs/claude-code.md)
+claude_json="${HOME}/.claude.json"
+[ -s "${claude_json}" ] || echo '{}' >"${claude_json}"
+jq --arg ws "${PWD}" '.projects[$ws].hasTrustDialogAccepted = true' "${claude_json}" >"${claude_json}.tmp"
+mv "${claude_json}.tmp" "${claude_json}"
+echo "claude: ${PWD} trusted"
+
 # ~/.codex も同じ (有効: ホストの rw bind、無効: 全ワークスペース共有の空の volume)。~/.codex には
 # ~/.claude.json に当たる単独ファイルが無いのでコピーは要らない。Codex の実体は /opt/codex (イメージ) にあり、
 # claude と違ってここでは更新しない (更新はイメージの rebuild)
