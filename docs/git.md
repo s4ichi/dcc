@@ -1,49 +1,49 @@
-# git 設定
+# git configuration
 
-常時マウント（モジュール選択に関係なく渡る）。
+Always mounted (passed regardless of module selection).
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| `~/.gitconfig`（と include 先） | ホスト | identity（`user.name` / `user.email`）、署名設定、alias。書き換えられるとホスト側の git の挙動が変わる |
-| ホストの credential helper（`osxkeychain` 等） | ホスト | Keychain の HTTPS 認証情報 |
+| `~/.gitconfig` (and its include targets) | host | Identity (`user.name` / `user.email`), signing settings, aliases. If rewritten, the behavior of git on the host changes |
+| The host's credential helper (`osxkeychain`, etc.) | host | HTTPS credentials in the Keychain |
 
-## 境界
+## Boundary
 
-| 軸 | この設計 |
+| Axis | This design |
 |---|---|
-| できること | 本体の git はホストの identity と設定で動く。global 設定の変更はできない（ro）。コンテナ固有の設定は system（`/etc/gitconfig`）にだけ書ける |
-| 届く範囲 | `~/.gitconfig` を ro で bind する。include 先の個人ファイルは base では渡さない。credential helper はホスト依存のまま（コンテナには無い） |
-| 鍵の渡し方 | この境界では鍵を渡さない。署名は [gpg.md](gpg.md)、push の認証は [ssh.md](ssh.md) / [github.md](github.md) に委ねる |
+| What it can do | The agent container's git runs with the host's identity and settings. Global settings cannot be changed (ro). Container-specific settings can only be written to system (`/etc/gitconfig`) |
+| Reach | `~/.gitconfig` is bound ro. Personal include-target files are not passed in base. The credential helper stays host-dependent (absent in the container) |
+| How the key is passed | No key is passed at this boundary. Signing is left to [gpg.md](gpg.md), push authentication to [ssh.md](ssh.md) / [github.md](github.md) |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナが乗っ取られた場合:
+If the agent container is taken over:
 
-- `~/.gitconfig` の内容（identity、alias、include のパス）は読める。秘密情報は通常含まれない
-- ホストの gitconfig を書き換えることはできない（ro）。`git config --global` はコンテナ内で失敗する
-- 署名や push の権限は各モジュールの境界に従う
+- The contents of `~/.gitconfig` (identity, aliases, include paths) are readable. They normally contain no secrets
+- The host's gitconfig cannot be rewritten (ro). `git config --global` fails inside the container
+- Signing and push permissions follow each module's boundary
 
-## なぜこの構成か
+## Why this design
 
-- **ro で bind**: 本体の git がホストと同じ identity で動くのが目的で、書き戻す必要は無い。rw だと Claude が alias や hook のパスを書き換えてホストに影響しうる
-- **include 先を base で渡さない**: `~/.gitconfig.local` のような分割は個人環境依存で、無いと bind が失敗する。git は存在しない include を無視するので、渡さなくても壊れない。必要なら `local/compose.yml` で bind する（[customization.md](customization.md)）
-- **コンテナ固有の設定は system に書く**: `~/.gitconfig` が ro なので、`safe.directory` や `gpg.program` の保険は `/etc/gitconfig`（コンテナローカル、ホストには戻らない）に書く。global は `safe.directory` を定義しない前提なので競合しない
+- **Bind ro**: the goal is for the agent container's git to run with the same identity as the host; there is no need to write back. With rw, Claude could rewrite aliases or hook paths and affect the host
+- **Do not pass include targets in base**: splits like `~/.gitconfig.local` depend on the personal environment, and if absent the bind fails. git ignores nonexistent includes, so nothing breaks if they are not passed. Bind them with `local/compose.yml` if needed ([customization.md](customization.md))
+- **Write container-specific settings to system**: since `~/.gitconfig` is ro, `safe.directory` and the `gpg.program` fallback are written to `/etc/gitconfig` (container-local, never flows back to the host). This assumes the global config does not define `safe.directory`, so there is no conflict
 
-## 仕組み
+## How it works
 
-| ホスト側 | コンテナ側 | モード |
+| Host side | Container side | Mode |
 |---|---|---|
-| `~/.gitconfig`（`DCC_GITCONFIG`） | `/home/agent/.gitconfig` | ro |
+| `~/.gitconfig` (`DCC_GITCONFIG`) | `/home/agent/.gitconfig` | ro |
 
-- **`safe.directory`**: bind されたワークスペースはホスト uid のまま見えるため、コンテナユーザーと一致しないと git が `dubious ownership` で全操作を拒否する。postCreate（root 側の `postCreate-root.sh`）が `git config --system --add safe.directory "$(pwd)"` を実行する（cwd はワークスペース。本体に sudo は無いので `dcc` が root で呼ぶ）
-- **署名**: `user.signingkey` / `commit.gpgsign` はホストの `~/.gitconfig*` に従う。`gpg.program` だけは `gpg` モジュール有効時に compose の `GIT_CONFIG_*` 環境変数（最優先レイヤ）が sidecar への wrapper に固定するため、ホストの `~/.gitconfig` に何が書かれていても影響しない（[gpg.md](gpg.md)）
-- **`GOPRIVATE`**: 必要なら `DCC_CONTAINER_ENV_GOPRIVATE` でコンテナに渡す（[customization.md](customization.md)）。private module の取得は git（SSH または HTTPS + token）で行う
+- **`safe.directory`**: the bound workspace appears with the host uid, and if it does not match the container user, git refuses every operation with `dubious ownership`. postCreate (the root-side `postCreate-root.sh`) runs `git config --system --add safe.directory "$(pwd)"` (cwd is the workspace; the agent container has no sudo, so `dcc` calls it as root)
+- **Signing**: `user.signingkey` / `commit.gpgsign` follow the host's `~/.gitconfig*`. Only `gpg.program` is pinned to the wrapper for the sidecar by compose's `GIT_CONFIG_*` environment variables (highest-priority layer) when the `gpg` module is enabled, so whatever the host's `~/.gitconfig` says has no effect ([gpg.md](gpg.md))
+- **`GOPRIVATE`**: pass it to the container with `DCC_CONTAINER_ENV_GOPRIVATE` if needed ([customization.md](customization.md)). Private modules are fetched with git (SSH, or HTTPS + token)
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- ワークスペース配下の別リポジトリ（サブモジュール、monorepo 内の別 `.git`）は `safe.directory` に登録されない。コンテナ内では root に上がれないので system gitconfig は書けない。`git -c safe.directory=<path> …` で都度渡すか、ホストから `docker compose -p <project> exec --user root agent git config --system --add safe.directory '*'` で登録する（`<project>` は `dcc list`）
-- ホストの `~/.gitconfig` に `credential.helper = osxkeychain` があると、コンテナ内で helper が見つからず警告が出る（致命的ではない）。HTTPS で push するなら `gh` モジュールを有効にする（postCreate が gh-token sidecar の短命 token を返す credential helper を system に登録し、こちらが先に問い合わせられる。[github.md](github.md)）
-- SSH 署名（`gpg.format = ssh`）で `user.signingkey` がホストの `~/.ssh/...` を指している場合、コンテナには無い。[ssh.md](ssh.md) の鍵を指すよう system gitconfig で上書きする
-- コンテナ専用の identity を使いたい場合は system gitconfig またはワークスペースの `.git/config` で上書きする
+- Other repositories under the workspace (submodules, separate `.git` in a monorepo) are not registered in `safe.directory`. Inside the container you cannot become root, so the system gitconfig cannot be written. Pass it each time with `git -c safe.directory=<path> …`, or register it from the host with `docker compose -p <project> exec --user root agent git config --system --add safe.directory '*'` (`<project>` from `dcc list`)
+- If the host's `~/.gitconfig` has `credential.helper = osxkeychain`, the helper is not found inside the container and a warning is printed (not fatal). To push over HTTPS, enable the `gh` module (postCreate registers in system a credential helper that returns the gh-token sidecar's short-lived token, and it is queried first; [github.md](github.md))
+- With SSH signing (`gpg.format = ssh`), if `user.signingkey` points to the host's `~/.ssh/...`, that file does not exist in the container. Override it in the system gitconfig to point to the key from [ssh.md](ssh.md)
+- To use a container-specific identity, override it in the system gitconfig or in the workspace's `.git/config`

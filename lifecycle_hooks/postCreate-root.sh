@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# コンテナ作成後に root で一度だけ実行する部分 (cwd はワークスペース)。本体に sudo は無く、エージェントの
-# プロセスからは root に上がれないので、dcc が `compose exec --user root` で呼ぶ。コンテナユーザーで行う
-# 処理は postCreate.sh (この後に実行される)。devcontainer からの呼び方は docs/devcontainer.md。
+# The part run once as root after container creation (cwd is the workspace). The agent container has no sudo and the agent's
+# processes cannot become root, so dcc calls this with `compose exec --user root`. Work done as the container user
+# is in postCreate.sh (run after this). How to call it from devcontainer: docs/devcontainer.md.
 #   postCreate-root.sh <user>
-# 出力の規約は postCreate.sh と同じ ("<主語>: <述語>" / "warn: <主語>: <述語>")。
-# root は capability を持たない (cap_drop ALL) ので、chown など CAP_* が要る処理はここにも書けない。
-# shellcheck disable=SC2088  # 主語の "~/.claude" は表示用の文字列で、展開させない
+# Output conventions are the same as postCreate.sh ("<subject>: <predicate>" / "warn: <subject>: <predicate>").
+# root has no capabilities (cap_drop ALL), so work needing CAP_* such as chown cannot be done here either.
+# shellcheck disable=SC2088  # the subject "~/.claude" is a string for display and must not be expanded
 set -euo pipefail
 
 user="${1:?usage: postCreate-root.sh <user>}"
@@ -17,11 +17,11 @@ has_cred() {
   return 1
 }
 
-# ~/.claude / ~/.codex が volume のとき (モジュール無効)、所有者がコンテナユーザーであることを確認する。
-# イメージ側のディレクトリの所有者を空の volume が初回 mount で引き継ぐ前提なので、ここでは直さない
-# (CAP_CHOWN が無い)。古いイメージで初回 mount した volume は root 所有のまま残るので、その場合は作り直す
+# When ~/.claude / ~/.codex are volumes (module disabled), check that the owner is the container user.
+# This relies on the empty volume inheriting the owner of the image's directory on first mount, so it is not fixed here
+# (no CAP_CHOWN). A volume first mounted with an old image stays root-owned; in that case recreate it
 check_volume_owner() {
-  # $1: モジュール名、$2: ディレクトリ、$3: 表示用の volume 名
+  # $1: module name, $2: directory, $3: volume name for display
   has_cred "$1" && return 0
   [ "$(stat -c %u "$2")" = "$uid" ] && return 0
   echo "warn: $2: owned by uid $(stat -c %u "$2"), not $user; remove the volume ($3) and run 'dcc recreate' with the current image" >&2
@@ -30,28 +30,28 @@ check_volume_owner() {
 check_volume_owner claude "$home/.claude" "dcc-claude-home, or DCC_CLAUDE_HOME_VOLUME"
 check_volume_owner codex "$home/.codex" "dcc-codex-home, or DCC_CODEX_HOME_VOLUME"
 
-# ホストでインストールした plugin のメタデータはホストの絶対パスを含むため、
-# ホストのホーム → コンテナのホームへ symlink して解決させる
+# Metadata of plugins installed on the host contains absolute host paths, so
+# symlink the host home -> container home to resolve them
 if [ -n "${HOST_HOME:-}" ] && [ "${HOST_HOME}" != "${home}" ] && [ ! -e "${HOST_HOME}" ]; then
   mkdir -p "$(dirname "${HOST_HOME}")"
   ln -sfn "${home}" "${HOST_HOME}"
 fi
 
-# bind されたワークスペースはホスト uid のままなので safe.directory に登録する。
-# ~/.gitconfig は ro なので system に書く
+# The bound workspace keeps the host uid, so register it in safe.directory.
+# ~/.gitconfig is ro, so write to system
 git config --system --add safe.directory "$(pwd)"
 
-# gpg モジュール有効時: 署名を gpg-signer sidecar へ委譲する wrapper を gpg.program に登録する
-# (主経路は compose の GIT_CONFIG_* 環境変数。ここは env が剥がれた場合の保険)。
-# 検証用の公開鍵の import はコンテナユーザーの keyring なので postCreate.sh が行う
+# When the gpg module is enabled: register the wrapper that delegates signing to the gpg-signer sidecar as gpg.program
+# (the main path is compose's GIT_CONFIG_* environment variables; this is a fallback in case env is stripped).
+# Importing the public key for verification goes into the container user's keyring, so postCreate.sh does it
 client=/usr/local/lib/dcc/gpg-sign-client.sh
 if [ -x "$client" ]; then
   git config --system gpg.program "$client"
   echo "gpg: signing delegated to gpg-signer"
 fi
 
-# gh モジュール有効時: git の https 認証を gh-token sidecar の短命 token にする。
-# gh auth setup-git は ~/.gitconfig (ro) に書こうとして失敗するので、system に登録する
+# When the gh module is enabled: make git's https auth use the gh-token sidecar's short-lived token.
+# gh auth setup-git fails trying to write ~/.gitconfig (ro), so register it in system
 client=/usr/local/lib/dcc/gh-token-client.sh
 if [ -x "$client" ]; then
   host="${DCC_GH_HOST:-github.com}"

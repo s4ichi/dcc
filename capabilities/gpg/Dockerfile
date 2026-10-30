@@ -1,7 +1,7 @@
-# GPG 署名 sidecar。
-# 秘密鍵 (署名鍵の keygrip のみ) とパスフレーズキャッシュはこのコンテナに閉じる。
-# entrypoint がコンテナローカルの keyring を組み立て、server.py が 127.0.0.1:8081 で
-# 署名 API を listen する (本体とは netns 共有)。
+# GPG signing sidecar.
+# The private key (only the signing key's keygrip) and the passphrase cache stay inside this container.
+# The entrypoint assembles a container-local keyring, and server.py listens for the signing API
+# on 127.0.0.1:8081 (netns shared with the agent container).
 FROM debian:bookworm-slim
 
 RUN apt-get update \

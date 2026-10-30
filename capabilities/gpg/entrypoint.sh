@@ -1,15 +1,15 @@
 #!/bin/sh
-# gpg-signer sidecar の起動時にコンテナローカルの /root/.gnupg を組み立てる。
-# - 公開鍵 / ownertrust: /gnupg-host (ホストの export、ro) から import
-# - 秘密鍵: /host-keys (ro) から keygrips.txt に列挙された署名鍵だけをコピー
-# - 署名鍵: signing-key.txt の値を /run/signing-key に固定 (鍵の変更は recreate)
+# Assemble the container-local /root/.gnupg when the gpg-signer sidecar starts.
+# - Public keys / ownertrust: import from /gnupg-host (the host's export, ro)
+# - Private keys: copy only the signing keys listed in keygrips.txt from /host-keys (ro)
+# - Signing key: pin the value of signing-key.txt to /run/signing-key (changing the key requires recreate)
 set -eu
 
 gnupg=/root/.gnupg
 mkdir -p "$gnupg/private-keys-v1.d"
 chmod 700 "$gnupg" "$gnupg/private-keys-v1.d"
 
-# TTY なしの署名要求はキャッシュに依存するため、TTL はコンテナ寿命いっぱい (400 日)
+# Signing requests without a TTY depend on the cache, so the TTL is the full container lifetime (400 days)
 cat > "$gnupg/gpg-agent.conf" <<'EOF'
 pinentry-program /usr/bin/pinentry-curses
 default-cache-ttl 34560000

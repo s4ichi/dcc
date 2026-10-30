@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# dcc の純粋な関数 (docker に触らないもの) のテスト。`make test` で実行する。
-# dcc を source すると関数定義だけが読まれる。docker を呼ぶ関数はテスト内で stub に差し替える。
+# Tests for dcc's pure functions (those that don't touch docker). Run with `make test`.
+# Sourcing dcc loads only function definitions. Functions that call docker are replaced with stubs in tests.
 
 setup() {
   REPO="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
@@ -13,7 +13,7 @@ setup() {
   load_config
 }
 
-# --- 引数 ---------------------------------------------------------------------
+# --- Arguments ----------------------------------------------------------------
 
 @test "parse_args: no args → default command" {
   parse_args
@@ -55,7 +55,7 @@ setup() {
   [ "${ARGS[*]}" = "--resume" ]
 }
 
-# --- エージェント -----------------------------------------------------------------
+# --- Agent --------------------------------------------------------------------
 
 @test "parse_args: agent defaults to claude" {
   parse_args
@@ -137,7 +137,7 @@ setup() {
 # --- postCreate -------------------------------------------------------------------
 
 @test "run_post_create: root hook runs as root before the user hook, then the marker is set" {
-  # compose exec … test -e <marker> だけ失敗させ (未実行)、他は呼び出しを 1 行ずつ記録する
+  # Fail only compose exec ... test -e <marker> (not yet run); record every other call one per line
   compose() {
     case "$*" in *" test -e "*) return 1 ;; esac
     printf '%s\n' "$*" >>"$BATS_TEST_TMPDIR/calls"
@@ -172,7 +172,7 @@ setup() {
   [ "${lines[1]}" = "! containers     postCreate-root.sh failed (rerun with 'dcc up')" ]
 }
 
-# --- ワークスペース ---------------------------------------------------------------
+# --- Workspace ----------------------------------------------------------------
 
 @test "resolve_workspace: first directory argument is consumed as the workspace" {
   parse_args exec "$REPO/docs" --resume
@@ -193,13 +193,13 @@ setup() {
   WORKSPACE=/Users/me/src/My.Project LOCAL_WORKSPACE_BASENAME=My.Project
   name="$(project_name)"
   [[ "$name" =~ ^dcc-myproject-[0-9a-f]{8}$ ]]
-  # 同じパスなら同じ名前
+  # Same path gives the same name
   [ "$name" = "$(project_name)" ]
   WORKSPACE=/elsewhere/My.Project
   [ "$name" != "$(project_name)" ]
 }
 
-# --- credential モジュール --------------------------------------------------------
+# --- Credential modules -------------------------------------------------------
 
 @test "resolve_creds: flags → normalized order, DCC_CREDS exported" {
   CREDS_EXPLICIT=1 CREDS_REQUEST="ssh, aws"
@@ -338,12 +338,12 @@ setup() {
   host_signing_key() { printf 'AAAA1111222233334444555566667777888899990000'; }
   run check_gpg_key_drift
   [ -z "$output" ]
-  host_signing_key() { :; }   # ホストに鍵が無いときは比較しない
+  host_signing_key() { :; }   # Don't compare when the host has no key
   run check_gpg_key_drift
   [ -z "$output" ]
 }
 
-# --- ワークスペース横断 --------------------------------------------------------------
+# --- Across workspaces ---------------------------------------------------------
 
 @test "for_each_project: calls the function once per compose project, in a subshell" {
   workspace_container_ids() { printf 'c1\nc2\nc3\nc4\n'; }
@@ -377,7 +377,7 @@ setup() {
   [ "$output" = "▸ containers     none found" ]
 }
 
-# --- 設定 ----------------------------------------------------------------------
+# --- Settings -----------------------------------------------------------------
 
 @test "load_config: DCC_CREDS from the environment becomes CREDS_DEFAULT" {
   DCC_CREDS=gpg load_config
@@ -400,7 +400,7 @@ setup() {
 }
 
 @test "export_container_env: DCC_CONTAINER_ENV_<NAME> becomes NAME in a dotenv file" {
-  # 関数が EXIT trap を張るので subshell で実行する
+  # The function sets an EXIT trap, so run it in a subshell
   (
     export DCC_CONTAINER_ENV_GOPRIVATE='github.com/org/*' DCC_CONTAINER_ENV_EDITOR=vim
     export_container_env
@@ -411,7 +411,7 @@ setup() {
   )
 }
 
-# --- ログ ----------------------------------------------------------------------
+# --- Logging ------------------------------------------------------------------
 
 @test "step / warn / done_step: subject column and optional note" {
   run step containers "creating agent, docker" "note"

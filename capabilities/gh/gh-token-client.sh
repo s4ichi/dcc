@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# gh モジュールの本体側 client。token は gh-token sidecar から毎回受け取り、本体には保存しない。docs/github.md
-#   /usr/local/bin/gh として呼ばれたとき: GH_TOKEN に入れて /usr/bin/gh を実行する
-#     (gh は GH_TOKEN を refresh しないので、実行のたびに取り直す)
-#   `<this> git-credential get` (git の credential helper): $DCC_GH_HOST の https に token を返す
+# Agent-side client of the gh module. The token is fetched from the gh-token sidecar every time and never stored in the agent container. docs/github.md
+#   When called as /usr/local/bin/gh: put it in GH_TOKEN and run /usr/bin/gh
+#     (gh does not refresh GH_TOKEN, so fetch it again on every run)
+#   `<this> git-credential get` (git credential helper): return the token for https on $DCC_GH_HOST
 set -euo pipefail
 
 real_gh=/usr/bin/gh
@@ -25,10 +25,10 @@ fetch_token() {
   rm -f "$resp"
 }
 
-# git は key=value の行を渡し、空行で終わる。host が一致するときだけ答え、それ以外は何も返さない
+# git passes key=value lines ending with an empty line. Answer only when host matches; otherwise return nothing
 git_credential() {
   local line protocol="" host=""
-  [ "${1:-}" = get ] || exit 0 # store / erase: 保存するものは無い (token は sidecar が管理する)
+  [ "${1:-}" = get ] || exit 0 # store / erase: nothing to store (the sidecar manages the token)
   while IFS= read -r line && [ -n "$line" ]; do
     case "$line" in
       protocol=*) protocol="${line#protocol=}" ;;
@@ -37,7 +37,7 @@ git_credential() {
   done
   [ "$protocol" = https ] && [ "$host" = "${DCC_GH_HOST:-github.com}" ] || exit 0
   local token
-  token="$(fetch_token)" || exit 0 # 次の helper (無ければ git のプロンプト) に任せる
+  token="$(fetch_token)" || exit 0 # leave it to the next helper (or git's prompt if none)
   printf 'username=x-access-token\npassword=%s\n' "$token"
 }
 
@@ -47,7 +47,7 @@ if [ "${1:-}" = git-credential ]; then
   exit 0
 fi
 
-# 認証状態は sidecar 側の volume にあり、本体の gh からは変えられない
+# Auth state lives in the sidecar's volume and cannot be changed from gh in the agent container
 case "${1:-} ${2:-}" in
   "auth login" | "auth logout" | "auth refresh" | "auth switch" | "auth setup-git")
     echo "gh-token-client: gh credentials are managed by the gh-token sidecar; run 'dcc gh-login' on the host" >&2

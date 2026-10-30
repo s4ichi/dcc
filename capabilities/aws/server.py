@@ -1,15 +1,15 @@
-"""AWS Container Credential Provider 互換の credential endpoint (docs/aws.md).
+"""Credential endpoint compatible with the AWS Container Credential Provider (docs/aws.md).
 
-GET /credentials で `aws configure export-credentials --format process` を実行し、
-その出力を SDK が AWS_CONTAINER_CREDENTIALS_FULL_URI 経由で期待する形式に変換して返す。
-refresh / cache は行わない (SDK は Expiration まで自前でキャッシュし、CLI は login / SSO の
-仕組みで credential を用意する)。
+GET /credentials runs `aws configure export-credentials --format process`,
+converts its output to the format the SDK expects via AWS_CONTAINER_CREDENTIALS_FULL_URI, and returns it.
+No refresh / cache (the SDK caches on its own until Expiration, and the CLI prepares credentials through
+the login / SSO mechanisms).
 
-環境変数:
-  AWS_PROFILE  export-credentials に渡す profile (デフォルト: default)
-  BIND_ADDR    listen アドレス (デフォルト: 127.0.0.1。本体コンテナと netns を共有する前提。
-               SDK は loopback 以外の http:// endpoint を拒否するので変えない。docs/aws.md)
-  BIND_PORT    listen ポート (デフォルト: 8080)
+Environment variables:
+  AWS_PROFILE  profile passed to export-credentials (default: default)
+  BIND_ADDR    listen address (default: 127.0.0.1; assumes the netns is shared with the agent container.
+               Do not change it: the SDK rejects http:// endpoints other than loopback. docs/aws.md)
+  BIND_PORT    listen port (default: 8080)
 """
 
 import json
@@ -26,7 +26,7 @@ TIMEOUT_SEC = 30
 
 
 def export_credentials():
-    """CLI の process 形式 → Container Credential Provider 形式。失敗時は (None, reason)."""
+    """CLI process format -> Container Credential Provider format. On failure, (None, reason)."""
     cmd = ["aws", "configure", "export-credentials", "--profile", PROFILE, "--format", "process"]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT_SEC)
@@ -34,8 +34,8 @@ def export_credentials():
         return None, "aws configure export-credentials timed out"
 
     if proc.returncode != 0:
-        # CLI の stderr は "token expired" 等の診断情報で secret は含まないが、
-        # クライアントには返さず sidecar のログにだけ出す。
+        # The CLI's stderr is diagnostics such as "token expired" and contains no secrets, but
+        # it is not returned to the client; only logged in the sidecar.
         sys.stderr.write(proc.stderr)
         return None, f"aws configure export-credentials failed (exit {proc.returncode}); see sidecar logs"
 
@@ -76,16 +76,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def log_message(self, fmt, *args):
-        # デフォルトの access log は request line をそのまま出す。ここではレスポンス内容や
-        # ヘッダを一切含めず、method / path / status だけを記録する。
+        # The default access log prints the request line as is. Here nothing from the response or
+        # headers is included; only method / path / status is logged.
         sys.stderr.write(f"{self.command} {self.path.split('?')[0]} {args[1] if len(args) > 1 else ''}\n")
 
 
 def main():
     server = ThreadingHTTPServer((BIND_ADDR, BIND_PORT), Handler)
-    # ENTRYPOINT 直起動で PID 1 になるため、ハンドラを登録しないと SIGTERM はカーネルに
-    # 無視され、docker stop が猶予期間 (10 秒) 後の SIGKILL までブロックする。
-    # 状態を持たないので graceful shutdown は不要 (処理中スレッドは daemon で即終了)。
+    # Started directly as ENTRYPOINT it becomes PID 1, so without a registered handler the kernel
+    # ignores SIGTERM and docker stop blocks until SIGKILL after the grace period (10 seconds).
+    # Stateless, so no graceful shutdown is needed (in-flight threads are daemons and exit immediately).
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     sys.stderr.write(f"aws-credentials: profile={PROFILE} listening on {BIND_ADDR}:{BIND_PORT}\n")
     server.serve_forever()

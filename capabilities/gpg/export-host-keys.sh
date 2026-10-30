@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# ホストの GPG 公開鍵 / ownertrust と署名鍵の keygrip / fingerprint を DCC_GPG_EXPORT_DIR に書き出す。
-# sidecar と本体はこの出力だけを読む (秘密鍵はここでは複製しない)。
-#   pubkeys.asc / ownertrust.txt  秘密鍵を持つ全鍵の公開鍵 (検証にも使う)
-#   keygrips.txt                  署名鍵の keygrip。sidecar はこれに列挙された鍵だけをコピーする
-#   signing-key.txt               署名鍵の primary fingerprint
-# 署名鍵は DCC_GPG_SIGNING_KEY、無ければ git config user.signingkey。
-# gpg が無い / 秘密鍵が無い / 署名鍵未設定なら警告だけ出して終了する (署名なしで使える)。
-# 出力は成功時は無し。警告は "warn: gpg: <message>" の 1 行 (dcc がそのまま ! 行にする)。
+# Write the host's GPG public keys / ownertrust and the signing key's keygrip / fingerprint to DCC_GPG_EXPORT_DIR.
+# The sidecar and the agent container read only this output (private keys are not copied here).
+#   pubkeys.asc / ownertrust.txt  public keys of all keys with a private key (also used for verification)
+#   keygrips.txt                  keygrips of the signing key. The sidecar copies only the keys listed here
+#   signing-key.txt               primary fingerprint of the signing key
+# The signing key is DCC_GPG_SIGNING_KEY, or git config user.signingkey if unset.
+# If gpg is missing / there is no private key / no signing key is set, print a warning and exit (usable without signing).
+# No output on success. A warning is one line "warn: gpg: <message>" (dcc turns it into a ! line as is).
 set -euo pipefail
 
 out="${DCC_GPG_EXPORT_DIR:-$(cd "$(dirname "$0")" && pwd)/gnupg-host}"
@@ -31,7 +31,7 @@ fi
 printf '%s\n' "$fprs" | xargs gpg --export --armor > "$out/pubkeys.asc"
 gpg --export-ownertrust > "$out/ownertrust.txt"
 
-# fingerprint / keyid / email のいずれでもよい。末尾の '!' (subkey 固定) は落とす
+# May be a fingerprint / keyid / email. Drop a trailing '!' (subkey pinning)
 key="${DCC_GPG_SIGNING_KEY:-$(git config --get user.signingkey || true)}"
 key="${key%!}"
 if [ -z "$key" ]; then

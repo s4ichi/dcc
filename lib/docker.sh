@@ -1,16 +1,16 @@
 # shellcheck shell=bash
-# docker / compose の状態を読む関数。ここにあるものは何も変更しない。
+# Functions that read docker / compose state. Nothing here changes anything.
 
 PROJECT_LABEL="com.docker.compose.project"
 WORKSPACE_LABELS=(dcc.workspace devcontainer.local_folder)
 
-# すべての compose 呼び出しに -p を付ける (無いと project 名が compose ファイルのディレクトリ名になり、
-# 全ワークスペースが同じプロジェクトに衝突する)
+# Add -p to every compose call (without it the project name becomes the compose file's directory name,
+# and all workspaces collide in the same project)
 compose() {
   docker compose -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 
-# $1: service、$2: docker ps の追加オプション (-a で停止中も含む)
+# $1: service, $2: extra docker ps options (-a to include stopped)
 container_id() {
   docker ps -q ${2:+"$2"} \
     --filter "label=$PROJECT_LABEL=$COMPOSE_PROJECT_NAME" \
@@ -18,12 +18,12 @@ container_id() {
     | head -n 1
 }
 
-# $1: container id、$2: label
+# $1: container id, $2: label
 label_of() {
   docker inspect --format "{{index .Config.Labels \"$2\"}}" "$1"
 }
 
-# 本体コンテナ (停止中も含む) のラベル。コンテナが無ければ失敗
+# Label of the agent container (including stopped). Fails if there is no container
 agent_label() {
   local id
   id="$(container_id agent -a)"
@@ -31,7 +31,7 @@ agent_label() {
   label_of "$id" "$1"
 }
 
-# 実行中の gpg-signer が起動時に固定した署名鍵 (fingerprint)。sidecar が無い / 鍵が無いなら空
+# Signing key (fingerprint) the running gpg-signer pinned at startup. Empty if no sidecar / no key
 signer_signing_key() {
   local signer
   signer="$(container_id gpg-signer)"
@@ -39,7 +39,7 @@ signer_signing_key() {
   docker exec "$signer" cat /run/signing-key 2>/dev/null || true
 }
 
-# compose プロジェクトのサービス名 (カンマ区切り)。$1: 既存コンテナだけなら -a
+# Service names of the compose project (comma-separated). $1: -a for existing containers only
 project_services() {
   if [ "${1:-}" = -a ]; then
     compose ps -a --services 2>/dev/null
@@ -48,7 +48,7 @@ project_services() {
   fi | paste -sd, - | sed 's/,/, /g'
 }
 
-# 本体コンテナの状態から up が何をするかを述語にする: creating / starting / running
+# Turns what up will do into a predicate from the agent container's state: creating / starting / running
 up_verb() {
   local id
   id="$(container_id agent -a)"
@@ -61,7 +61,7 @@ up_verb() {
   fi
 }
 
-# ワークスペースラベルを持つ本体コンテナ (dcc / devcontainer CLI のどちらが作ったものも)。$@: docker ps の追加オプション
+# Agent containers with a workspace label (created by either dcc or the devcontainer CLI). $@: extra docker ps options
 workspace_container_ids() {
   local label
   for label in "${WORKSPACE_LABELS[@]}"; do
@@ -69,7 +69,7 @@ workspace_container_ids() {
   done | awk '!seen[$0]++'
 }
 
-# {{or (.Label "dcc.workspace") (.Label "devcontainer.local_folder")}} 相当の template 式
+# Template expression equivalent to {{or (.Label "dcc.workspace") (.Label "devcontainer.local_folder")}}
 workspace_template() {
   local fn="$1" label out=""
   for label in "${WORKSPACE_LABELS[@]}"; do

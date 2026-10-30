@@ -4,92 +4,92 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-このリポジトリはコーディングエージェント（Claude Code / Codex CLI）をホストから隔離して動かすためのコンテナ設定（docker compose）と、その薄いラッパー CLI `dcc` を管理する。ホストでは `~/.config/dcc`（`DCC_CONFIG_DIR`）に clone して使う。`dcc` は選択した compose ファイルを `-f` で並べて `docker compose` を呼ぶだけで、ファイルの生成・書き換えは行わず、devcontainer CLI にも依存しない。同じ compose ファイルは devcontainer CLI / VS Code からも参照できる。
+This repository manages the container setup (docker compose) for running coding agents (Claude Code / Codex CLI) isolated from the host, plus a thin wrapper CLI `dcc` around it. On the host it is cloned into `~/.config/dcc` (`DCC_CONFIG_DIR`). `dcc` just lines up the selected compose files with `-f` and calls `docker compose`; it does not generate or rewrite files, and does not depend on the devcontainer CLI. The same compose files can also be referenced from the devcontainer CLI / VS Code.
 
-compose プロジェクトはワークスペースごとに 1 つで、`agent`（本体。エージェントが動く非特権コンテナ。`claude` と `codex` の両方が入っており、`dcc --agent` で起動のたびに選ぶ）と `docker`（rootless dind の sidecar。`privileged` はここだけで、秘密情報は一切マウントしない）からなる。ホストの秘密情報は credential モジュール（`aws` / `claude` / `codex` / `gpg` / `ssh` / `gh`）として `dcc --creds gpg,ssh` のように明示したときだけ渡る。`gpg` / `aws` / `gh` は非特権のモジュール sidecar が代行し、本体は鍵（`gh` では refresh token）を受け取らない。
+There is one compose project per workspace, made of `agent` (the agent container: the unprivileged container where the agent runs. Both `claude` and `codex` are installed, chosen with `dcc --agent` on each launch) and `docker` (a rootless dind sidecar. The only `privileged` one, and no secrets are mounted into it at all). The host's secrets are passed only when explicitly named as credential modules (`aws` / `claude` / `codex` / `gpg` / `ssh` / `gh`), as in `dcc --creds gpg,ssh`. For `gpg` / `aws` / `gh`, an unprivileged module sidecar does the work on the agent container's behalf, and the agent container never receives the key (for `gh`, the refresh token).
 
-設計の前提は「本体コンテナは侵害されうる」。変更するときは、本体から新たに何へ到達できるようになるかを必ず考える（`docs/boundaries.md`）。
+The design assumes "the agent container may be compromised". When making changes, always consider what the agent container can newly reach as a result (`docs/boundaries.md`).
 
-仕様の正は `docs/`。ここには作業に必要な要点だけを書く。
+The source of truth for the specification is `docs/`. Only the essentials needed for working are written here.
 
-| 知りたいこと | 読むもの |
+| What you want to know | What to read |
 |---|---|
-| 使い方、コマンド、モジュールの概要 | `README.md` |
-| 構成要素、compose の構造、ライフサイクル、`dcc` の仕様と実装の分担 | `docs/architecture.md` |
-| 境界の総論、設計原則、マウント一覧 | `docs/boundaries.md` |
-| モジュールの選択・drift・追加方法 | `docs/credentials.md` |
-| `DCC_*` 環境変数、`local/` | `docs/customization.md`、`.env.example` |
-| 境界ごとの設計理由と既知の穴 | `docs/{gpg,aws,ssh,github,git,claude-code,codex,mcp,docker}.md` |
-| devcontainer CLI / VS Code からの利用 | `docs/devcontainer.md` |
+| Usage, commands, module overview | `README.md` |
+| Components, compose structure, lifecycle, `dcc` specification and how the implementation is split | `docs/architecture.md` |
+| Overview of boundaries, design principles, mounts | `docs/boundaries.md` |
+| Selecting modules, drift, how to add one | `docs/credentials.md` |
+| `DCC_*` environment variables, `local/` | `docs/customization.md`, `.env.example` |
+| Design rationale and known holes per boundary | `docs/{gpg,aws,ssh,github,git,claude-code,codex,mcp,docker}.md` |
+| Using it from the devcontainer CLI / VS Code | `docs/devcontainer.md` |
 
 ## Commands
 
 ```bash
-make generate   # template.jsonnet → docker-compose*.yml + capabilities/*/compose.yml を生成
-make fmt        # template.jsonnet をフォーマット（jsonnetfmt -i）
-make check      # lint + test + Jsonnet の評価検証（ファイルは生成しない）
-make lint       # shellcheck（dcc / lib / lifecycle_hooks / capabilities/{gpg,gh} のスクリプト）
-make test       # bats（test/*.bats。dcc を source して docker に触らない関数を検査する）
-make clean      # 生成物を削除
+make generate   # generate docker-compose*.yml + capabilities/*/compose.yml from template.jsonnet
+make fmt        # format template.jsonnet (jsonnetfmt -i)
+make check      # lint + test + validate Jsonnet evaluation (does not generate files)
+make lint       # shellcheck (scripts in dcc / lib / lifecycle_hooks / capabilities/{gpg,gh})
+make test       # bats (test/*.bats; sources dcc and checks functions that do not touch docker)
+make clean      # remove generated files
 ```
 
-`shellcheck` と `bats` が要る（macOS: `brew install shellcheck bats-core`、Debian: `apt install shellcheck bats`）。
+`shellcheck` and `bats` are required (macOS: `brew install shellcheck bats-core`, Debian: `apt install shellcheck bats`).
 
-`dcc` のコマンドとオプションは `dcc help` と `README.md`。動作確認でよく使うのは `dcc up` / `dcc recreate` / `dcc creds` / `dcc list`、出力を全部見るなら `DCC_VERBOSE=1`。
+`dcc`'s commands and options are in `dcc help` and `README.md`. Commonly used for checking behavior: `dcc up` / `dcc recreate` / `dcc creds` / `dcc list`; to see all output, `DCC_VERBOSE=1`.
 
-## 変更するときの規約
+## Conventions for making changes
 
-- **生成物を直接編集しない。** `docker-compose.yml` / `docker-compose.workspace.yml` / `docker-compose.base-image.yml` / `capabilities/*/compose.yml` は `template.jsonnet` から生成する。`template.jsonnet` を変えたら `make fmt && make generate` し、生成物も一緒にコミットする（ホストに jsonnet が無くても使えるようにするため）
-- **`dcc` / `lib/*.sh` / フックを変えたら `make check` を通す。** 関数を足したら `test/dcc.bats` にテストを足す。`dcc` は source すると関数定義だけが読まれる（実行は末尾の `main` のみ）ので、テストは関数を直接呼び、docker を呼ぶ関数（`agent_label` / `container_id` など）はテスト内で stub に差し替える
-- **`lib/` の書き方:** 関数は「docker の状態を読む」（`docker.sh`）か「変える」（`project.sh`）のどちらか一方。グローバル変数を書くのは `load_config` / `parse_args` / `resolve_workspace` / `resolve_creds` だけで、以降は読むだけ。トップレベルで実行するのは `dcc` 末尾の `main` だけ
-- **ログは 1 行 1 情報**（`lib/log.sh` 冒頭の規約）。主語は `dcc` が触った対象で、関数名や compose のサブコマンド名は出さない。外部ツールの出力は成功時は隠し、失敗時に全部出す。フックは `<主語>: <述語>` / `warn: <主語>: <述語>` の行だけを出す
-- **利用者ごとの値を焼き込まない。** 個人・組織固有の値は `template.jsonnet` に `${DCC_X:-<既定値>}` で書き、`.env.example` と `docs/customization.md` の表に 1 行足す。`dcc` / `initialize.sh` が同じ値を必要とする場合は同じ既定値で参照する
-- **compose に相対パスを書かない。** リポジトリ内のファイルはすべて `${DCC_CONFIG_DIR:-${HOME}/.config/dcc}` 基準の絶対パスで参照する（devcontainer CLI から別の `-f` の並びで渡されても同じ場所を指すように）
-- **モジュールの追加**は `template.jsonnet` の `credModules` にエントリを足して `make generate`。`dcc` は `capabilities/*/compose.yml` のファイル名一覧からモジュール名を得るので変更不要。ホスト側の前処理は `lifecycle_hooks/initialize.sh` の `case`、コンテナ側はマウントの存在で gate して `postCreate.sh`（コンテナユーザー）か `postCreate-root.sh`（root が要るもの）に足す。手順の全体は `docs/credentials.md` の「モジュールの追加」
-- **docs も一緒に直す。** 境界ごとのページは同じ見出し（守るもの / 境界 / 侵害時に漏れるもの / なぜこの構成か / 仕組み / 制約・既知の穴）で書く。マウントを変えたら `docs/boundaries.md` のマウント一覧、コマンドやオプションを変えたら `usage`（`lib/cli.sh`）・`README.md`・`docs/architecture.md` を更新する
-- **コメントは「なぜ」を書く。** 設計理由の本文は docs に置き、コード側は 1〜2 行の要点と docs へのポインタに留める
+- **Do not edit generated files directly.** `docker-compose.yml` / `docker-compose.workspace.yml` / `docker-compose.base-image.yml` / `capabilities/*/compose.yml` are generated from `template.jsonnet`. After changing `template.jsonnet`, run `make fmt && make generate` and commit the generated files too (so it works without jsonnet on the host)
+- **If you change `dcc` / `lib/*.sh` / the hooks, make `make check` pass.** When you add a function, add a test to `test/dcc.bats`. Sourcing `dcc` only loads function definitions (only `main` at the end is executed), so tests call functions directly, and functions that call docker (`agent_label` / `container_id`, etc.) are replaced with stubs inside the test
+- **How to write `lib/`:** a function either "reads docker state" (`docker.sh`) or "changes it" (`project.sh`), never both. Only `load_config` / `parse_args` / `resolve_workspace` / `resolve_creds` write global variables; after that they are only read. The only thing executed at top level is `main` at the end of `dcc`
+- **Logs are one piece of information per line** (the convention at the top of `lib/log.sh`). The subject is the thing `dcc` touched; do not print function names or compose subcommand names. Hide external tools' output on success and print all of it on failure. Hooks print only lines of the form `<subject>: <predicate>` / `warn: <subject>: <predicate>`
+- **Do not bake in per-user values.** Write personal or organization-specific values in `template.jsonnet` as `${DCC_X:-<default>}`, and add one line to `.env.example` and to the table in `docs/customization.md`. If `dcc` / `initialize.sh` need the same value, reference it with the same default
+- **Do not write relative paths in compose.** Every file in the repository is referenced by an absolute path based on `${DCC_CONFIG_DIR:-${HOME}/.config/dcc}` (so it points to the same place even when the devcontainer CLI passes a different order of `-f`)
+- **To add a module**, add an entry to `credModules` in `template.jsonnet` and run `make generate`. `dcc` gets the module names from the file names of `capabilities/*/compose.yml`, so it needs no changes. Host-side pre-processing goes in the `case` of `lifecycle_hooks/initialize.sh`; container-side work is gated on the presence of the mount and added to `postCreate.sh` (container user) or `postCreate-root.sh` (things that need root). The full procedure is in "Adding a module" in `docs/credentials.md`
+- **Fix the docs too.** Per-boundary pages use the same headings (What it protects / Boundary / What leaks on compromise / Why this design / How it works / Constraints and known holes). If you change mounts, update the mount tables in `docs/boundaries.md`; if you change commands or options, update `usage` (`lib/cli.sh`), `README.md`, and `docs/architecture.md`
+- **Comments explain "why".** The body of the design rationale goes in docs; the code side keeps only a 1-2 line gist and a pointer to the docs
 
-## ファイルの役割
+## File roles
 
-| ファイル | 役割 |
+| File | Role |
 |---|---|
-| `template.jsonnet` | 設定の単一ソース。credential モジュールは `credModules` に定義 |
-| `docker-compose.yml` | 生成物（base）。`agent` と `docker` の定義、常時マウントのみ。ワークスペースの bind は含まない |
-| `docker-compose.workspace.yml` | 生成物（overlay）。`dcc` 用のワークスペース bind と `dcc.workspace` ラベル |
-| `docker-compose.base-image.yml` | 生成物（overlay）。`local/Dockerfile` があるときに base イメージを build するための上書き。`dcc build` / `dcc up` だけが使う |
-| `capabilities/<name>/compose.yml` | 生成物（overlay）。credential モジュールごとの compose 断片 |
-| `capabilities/gpg/`、`capabilities/aws/`、`capabilities/gh/` | モジュール sidecar のイメージ（`server.py`）と、`gpg` のホスト側スクリプト（`export-host-keys.sh` / `warm.sh`）、本体側 wrapper（`gpg-sign-client.sh` / `gh-token-client.sh`） |
-| `capabilities/ssh/config`、`known_hosts` | `ssh` モジュールが `/etc/ssh` に注入する GitHub 向け設定（追跡対象） |
-| `Dockerfile` | 本体イメージ（`debian:bookworm-slim`、dockerd は含まない）。個人のレイヤは `local/Dockerfile` で足す |
-| `dcc`、`lib/*.sh` | CLI の入口と実装（分担は `dcc` 冒頭のコメントと `docs/architecture.md`） |
-| `lifecycle_hooks/initialize.sh` | ホスト側の前処理（モジュールごとの export / 事前チェック）。`dcc up` と devcontainer の `initializeCommand` から呼ぶ |
-| `lifecycle_hooks/postCreate-root.sh` | コンテナ作成後にコンテナ内で root として一度だけ実行するフック（system gitconfig、`HOST_HOME` の symlink）。本体に sudo は無いので `dcc up` が `compose exec --user root` で呼ぶ。root にも capability は無い（`chown` 不可） |
-| `lifecycle_hooks/postCreate.sh` | コンテナ作成後にコンテナユーザーで一度だけ実行するフック。`dcc up`（root 側の後）と devcontainer の `postCreateCommand` から呼ぶ |
-| `test/dcc.bats` | `dcc` の関数テスト |
-| `AGENTS.md` | Codex など他のエージェント向けの入口。規約の本体はこのファイル（`CLAUDE.md`）で、`AGENTS.md` はここへ案内するだけ。規約を変えるときはこちらを直す |
-| `.env.example` | `DCC_*` の一覧と既定値（これが正） |
-| `.env`、`local/`、`capabilities/{ssh,gh}/data/`、`capabilities/gpg/gnupg-host/` | gitignore 済み。利用者の設定と秘密情報。**読まない・コミットしない** |
+| `template.jsonnet` | Single source of the configuration. Credential modules are defined in `credModules` |
+| `docker-compose.yml` | Generated file (base). Definitions of `agent` and `docker`, always-on mounts only. Does not include the workspace bind |
+| `docker-compose.workspace.yml` | Generated file (overlay). The workspace bind for `dcc` and the `dcc.workspace` label |
+| `docker-compose.base-image.yml` | Generated file (overlay). Override for building the base image when `local/Dockerfile` exists. Used only by `dcc build` / `dcc up` |
+| `capabilities/<name>/compose.yml` | Generated file (overlay). The compose fragment for each credential module |
+| `capabilities/gpg/`, `capabilities/aws/`, `capabilities/gh/` | Module sidecar images (`server.py`), the host-side scripts for `gpg` (`export-host-keys.sh` / `warm.sh`), and agent-side wrappers (`gpg-sign-client.sh` / `gh-token-client.sh`) |
+| `capabilities/ssh/config`, `known_hosts` | GitHub-specific settings that the `ssh` module injects into `/etc/ssh` (tracked in git) |
+| `Dockerfile` | The agent image (`debian:bookworm-slim`, without dockerd). Personal layers are added in `local/Dockerfile` |
+| `dcc`, `lib/*.sh` | Entry point and implementation of the CLI (the split is described in the comment at the top of `dcc` and in `docs/architecture.md`) |
+| `lifecycle_hooks/initialize.sh` | Host-side pre-processing (per-module export / pre-checks). Called from `dcc up` and devcontainer's `initializeCommand` |
+| `lifecycle_hooks/postCreate-root.sh` | Hook run once as root inside the container after creation (system gitconfig, the `HOST_HOME` symlink). There is no sudo in the agent container, so `dcc up` calls it with `compose exec --user root`. Even root has no capabilities (no `chown`) |
+| `lifecycle_hooks/postCreate.sh` | Hook run once as the container user after creation. Called from `dcc up` (after the root side) and devcontainer's `postCreateCommand` |
+| `test/dcc.bats` | Function tests for `dcc` |
+| `AGENTS.md` | Entry point for Codex and other agents. The conventions live in this file (`CLAUDE.md`); `AGENTS.md` only points here. To change the conventions, edit this file |
+| `.env.example` | List of `DCC_*` and their defaults (this is the source of truth) |
+| `.env`, `local/`, `capabilities/{ssh,gh}/data/`, `capabilities/gpg/gnupg-host/` | Gitignored. The user's settings and secrets. **Do not read them, do not commit them** |
 
-## 壊してはいけない不変条件
+## Invariants that must not break
 
-理由はそれぞれ括弧内の docs にある。変える必要があるなら、理由を読んでから。
+The reason for each is in the docs in parentheses. If you need to change one, read the reason first.
 
-- 本体は非特権。`privileged: true` は `docker` sidecar だけで、そこには秘密情報を一切マウントしない。ホストの `/var/run/docker.sock` は渡さない（`docs/docker.md`）
-- 本体に sudo を入れない。`security_opt: no-new-privileges` と `cap_drop: ALL` を外さない。root が要るコンテナ作成後の処理は `postCreate-root.sh` に置き、`dcc` が `compose exec --user root` で呼ぶ。root にも capability が無いので `chown` は書けず、volume の所有者はイメージ側のディレクトリで用意する（`docs/boundaries.md`）
-- サービス名 `docker` は変えない。sidecar が生成する TLS 証明書の SAN に固定で含まれる（`docs/docker.md`）
-- ワークスペースは本体と `docker` sidecar に**同一パス**（`/workspaces/<basename>`）で bind する。`docker run -v` の bind を解決するのは sidecar の dockerd（`docs/docker.md`）
-- base の `docker-compose.yml` にワークスペースの bind を置かない。devcontainer CLI は compose にワークスペースのパスを渡せない（`docs/devcontainer.md`）
-- ホスト側の前処理の結果は compose の環境変数ではなく**ファイル**で渡す。devcontainer の `initializeCommand` からは compose に環境変数を渡せない（`docs/credentials.md`）
-- モジュール sidecar は `network_mode: service:docker` で netns を共有し、`127.0.0.1` だけで listen する。AWS SDK が loopback 以外の `http://` endpoint を拒否するためで、結果として endpoint は netns の外から届かない（`docs/aws.md`）
-- 長期鍵を本体に持ち込まない。`~/.aws`、`~/.gnupg`、ホストの `~/.ssh`、Keychain は本体にマウントしない（`docs/boundaries.md`）
-- コンテナ内で atomic write されるファイル（`~/.claude.json`）を single-file bind しない。ro で `.host` として渡し postCreate でコピーする（`docs/claude-code.md`）。`~/.codex` も `config.toml` が rename で書かれるので、必ずディレクトリ単位で渡す（`docs/codex.md`）
-- エージェントの選択（`--agent`）はコンテナの属性にしない。両エージェントは同じコンテナに同居し、ラベルや compose の補間に `AGENT` を持ち込まない（持ち込むと切り替えに `dcc recreate` が要るようになる）
-- Claude Code の実体（`~/.local/share/claude`）を volume にしない。イメージの焼き込み版が正（`docs/claude-code.md`）。Codex の実体も `/opt/codex`（イメージ）に置き、`~/.codex` の下には置かない
-- compose は multi-file の `volumes` を target で追記マージし、同一 target は後勝ち。意図的な上書き（`claude` モジュールの `~/.claude`）以外で target を重複させない
+- The agent container is unprivileged. `privileged: true` is only on the `docker` sidecar, and no secrets at all are mounted there. The host's `/var/run/docker.sock` is not passed (`docs/docker.md`)
+- Do not put sudo in the agent container. Do not remove `security_opt: no-new-privileges` and `cap_drop: ALL`. Post-creation processing that needs root goes in `postCreate-root.sh`, which `dcc` calls with `compose exec --user root`. Even root has no capabilities, so `chown` cannot be written; volume ownership is prepared via directories on the image side (`docs/boundaries.md`)
+- Do not change the service name `docker`. It is hard-coded in the SAN of the TLS certificate the sidecar generates (`docs/docker.md`)
+- Bind the workspace at the **same path** (`/workspaces/<basename>`) in the agent container and the `docker` sidecar. It is the sidecar's dockerd that resolves binds of `docker run -v` (`docs/docker.md`)
+- Do not put the workspace bind in the base `docker-compose.yml`. The devcontainer CLI cannot pass the workspace path to compose (`docs/devcontainer.md`)
+- Pass the results of host-side pre-processing as **files**, not as compose environment variables. devcontainer's `initializeCommand` cannot pass environment variables to compose (`docs/credentials.md`)
+- Module sidecars share the netns with `network_mode: service:docker` and listen only on `127.0.0.1`. This is because the AWS SDK rejects `http://` endpoints other than loopback; as a result, the endpoints are unreachable from outside the netns (`docs/aws.md`)
+- Never bring long-lived keys into the agent container. `~/.aws`, `~/.gnupg`, the host's `~/.ssh`, and the Keychain are not mounted into the agent container (`docs/boundaries.md`)
+- Do not single-file bind files that are atomically written inside the container (`~/.claude.json`). Pass them ro as `.host` and copy them in postCreate (`docs/claude-code.md`). `~/.codex` is also written via rename for `config.toml`, so always pass it as a whole directory (`docs/codex.md`)
+- Do not make the agent choice (`--agent`) an attribute of the container. Both agents live together in the same container; do not bring `AGENT` into labels or compose interpolation (doing so would make switching require `dcc recreate`)
+- Do not make the Claude Code binary (`~/.local/share/claude`) a volume. The version baked into the image is authoritative (`docs/claude-code.md`). The Codex binary also lives in `/opt/codex` (the image), not under `~/.codex`
+- Compose merges multi-file `volumes` by appending per target, and the same target is last-wins. Do not duplicate targets except for the intentional override (`~/.claude` by the `claude` module)
 
-## 運用上の注意
+## Operational notes
 
-- compose ファイルやイメージの変更は既存コンテナに反映されない（`dcc up` は `--no-recreate`）。`dcc recreate` する
-- `docker` sidecar だけを再起動しない。本体の netns が古い sandbox に取り残されて Docker に繋がらなくなる。復旧は `dcc recreate`
-- このリポジトリ自体を `dcc` のコンテナ内で編集している場合、コンテナ内の `docker` は sidecar の dockerd で、ホストの `dcc` が作ったコンテナは見えない。`dcc up` などの動作確認はホスト側で行う
-- このリポジトリをワークスペースにすると境界は無くなる（`dcc` / `lib` / `.env` / フック / sidecar のソースがホストと sidecar で実行される）。開くなら `--no-creds` で、ホストで `git diff` を確認してから次の `dcc` を実行する（`docs/boundaries.md` の「この設計が守らないもの」）
+- Changes to compose files or images are not applied to existing containers (`dcc up` uses `--no-recreate`). Run `dcc recreate`
+- Do not restart only the `docker` sidecar. The agent container's netns gets left behind in the old sandbox and can no longer reach Docker. Recover with `dcc recreate`
+- If you are editing this repository itself inside a `dcc` container, `docker` inside the container is the sidecar's dockerd, and containers created by `dcc` on the host are not visible. Check behavior such as `dcc up` on the host
+- Using this repository as the workspace removes the boundary (`dcc` / `lib` / `.env` / hooks / sidecar sources run on the host and in the sidecars). If you open it, use `--no-creds`, and check `git diff` on the host before running the next `dcc` ("What this design does not protect" in `docs/boundaries.md`)

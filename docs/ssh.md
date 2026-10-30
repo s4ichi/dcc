@@ -1,78 +1,78 @@
-# SSH 鍵
+# SSH keys
 
-**モジュール名: `ssh`** — `dcc --creds ssh` を指定したときだけ有効になる（[credentials.md](credentials.md)）。
+**Module name: `ssh`** — enabled only when `dcc --creds ssh` is given ([credentials.md](credentials.md)).
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| ホストの `~/.ssh/` の秘密鍵 | ホスト | 個人の全アクセス（GitHub、サーバー等）に紐づく長期鍵 |
-| ホストの `ssh-agent`（Keychain 連携） | ホスト | パスフレーズ入力なしで上記の鍵を使える状態 |
-| コンテナ専用の秘密鍵 `id_ed25519` | `<repo>/capabilities/ssh/data/`（gitignore） | GitHub の必要なリポジトリだけに登録した鍵 |
+| Private keys in the host's `~/.ssh/` | host | Long-lived keys tied to all personal access (GitHub, servers, etc.) |
+| The host's `ssh-agent` (Keychain integration) | host | A state in which the above keys work without entering a passphrase |
+| Container-only private key `id_ed25519` | `<repo>/capabilities/ssh/data/` (gitignored) | A key registered on GitHub only for the repositories that need it |
 
-## 境界
+## Boundary
 
-| 軸 | この設計 |
+| Axis | This design |
 |---|---|
-| できること | 本体は「コンテナ専用鍵で GitHub に SSH 接続する」ことだけができる。鍵に与えた権限（デプロイキー / 専用アカウント）の範囲が上限 |
-| 届く範囲 | ホストの `~/.ssh` と `ssh-agent` は一切渡さない。コンテナ専用鍵の置き場を `~/.ssh` に ro で bind し、接続設定とホスト鍵は `/etc/ssh` に ro で注入する |
-| 鍵の渡し方 | **平文の鍵をそのまま渡す**（ro bind）。渡す鍵をコンテナ専用にし、権限を絞ることで補う |
+| What it can do | The agent container can only "connect to GitHub over SSH with the container-only key". The permissions granted to the key (deploy key / dedicated account) are the ceiling |
+| Reach | The host's `~/.ssh` and `ssh-agent` are never passed. The container-only key directory is bound ro to `~/.ssh`, and connection settings and host keys are injected ro into `/etc/ssh` |
+| How the key is passed | **The plaintext key is passed as is** (ro bind). Compensated by making the key container-only and restricting its permissions |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナが乗っ取られた場合:
+If the agent container is taken over:
 
-- コンテナ専用の秘密鍵は持ち出せる（ro でも読める）。漏れた場合の被害はその鍵に与えた権限の範囲で、GitHub 側で鍵を削除すれば止まる
-- ホストの鍵と agent には到達できない
-- inner container からは見えない（sidecar にこのディレクトリを渡していない）
+- The container-only private key can be exfiltrated (readable even ro). Damage from a leak is limited to the permissions granted to that key, and deleting the key on GitHub stops it
+- The host's keys and agent are unreachable
+- Not visible from inner containers (this directory is not passed to the sidecar)
 
-## なぜこの構成か
+## Why this design
 
-- **ホストの `~/.ssh` を bind しない**: ホストの秘密鍵は個人の全アクセスに紐づく。コンテナ内の Claude Code に渡すには権限が大きすぎる
-- **agent forwarding を使わない**: macOS の `ssh-agent`（Keychain 連携）の Unix socket は Docker VM の境界を越えられない。追加のセットアップが要り、常時動作の保証が無い
-- **鍵はそのまま渡す**: 署名（gpg）や AWS と違い、SSH には「代行実行」の安価な形が無い。代わりに渡す鍵の権限を絞る
-- **接続設定とホスト鍵は `/etc/ssh` に注入する**: GitHub のホスト鍵を `/etc/ssh/ssh_known_hosts` に固定すると初回接続の確認プロンプトが出ず、`~/.ssh/known_hosts` への書き込みも発生しない。TTY の無い Claude Code の Bash ツールから `git push` してもここで止まらない。書き込みが要らないので `~/.ssh` は ro でよい
+- **Do not bind the host's `~/.ssh`**: the host's private keys are tied to all personal access. Too much authority to hand to Claude Code in a container
+- **Do not use agent forwarding**: the Unix socket of macOS's `ssh-agent` (Keychain integration) cannot cross the Docker VM boundary. It needs extra setup and has no guarantee of always working
+- **Pass the key as is**: unlike signing (gpg) or AWS, SSH has no cheap form of "delegated execution". Instead, restrict the permissions of the key that is passed
+- **Inject connection settings and host keys into `/etc/ssh`**: pinning GitHub's host keys in `/etc/ssh/ssh_known_hosts` avoids the first-connection confirmation prompt and avoids writing to `~/.ssh/known_hosts`. A `git push` from Claude Code's Bash tool, which has no TTY, does not stall there. Since no writes are needed, `~/.ssh` can be ro
 
-## 仕組み
+## How it works
 
-| ホスト側 | コンテナ側 | モード | 追跡 |
+| Host side | Container side | Mode | Tracked |
 |---|---|---|---|
-| `<repo>/capabilities/ssh/config`（`DCC_SSH_CONFIG`） | `/etc/ssh/ssh_config.d/github.conf` | ro | あり |
-| `<repo>/capabilities/ssh/known_hosts`（`DCC_SSH_KNOWN_HOSTS`） | `/etc/ssh/ssh_known_hosts` | ro | あり |
-| `<repo>/capabilities/ssh/data/`（`DCC_SSH_DIR`） | `/home/agent/.ssh/` | ro | なし（gitignore） |
+| `<repo>/capabilities/ssh/config` (`DCC_SSH_CONFIG`) | `/etc/ssh/ssh_config.d/github.conf` | ro | yes |
+| `<repo>/capabilities/ssh/known_hosts` (`DCC_SSH_KNOWN_HOSTS`) | `/etc/ssh/ssh_known_hosts` | ro | yes |
+| `<repo>/capabilities/ssh/data/` (`DCC_SSH_DIR`) | `/home/agent/.ssh/` | ro | no (gitignored) |
 
-- `config`: `Host github.com` に `User git` / `IdentityFile ~/.ssh/id_ed25519` / `IdentitiesOnly yes`。Debian の `/etc/ssh/ssh_config` が `Include /etc/ssh/ssh_config.d/*.conf` するので追加設定なしで効く
-- `known_hosts`: GitHub のホスト鍵（`https://api.github.com/meta` の `ssh_keys`）
-- `data/`: 秘密鍵 `id_ed25519`（と `.pub`）のみ。`~/.ssh/config` を置けば個人設定として system config より優先される（ssh は先に見つかった値を使う）
+- `config`: `User git` / `IdentityFile ~/.ssh/id_ed25519` / `IdentitiesOnly yes` for `Host github.com`. Debian's `/etc/ssh/ssh_config` does `Include /etc/ssh/ssh_config.d/*.conf`, so it takes effect without extra settings
+- `known_hosts`: GitHub's host keys (`ssh_keys` from `https://api.github.com/meta`)
+- `data/`: only the private key `id_ed25519` (and `.pub`). If you place a `~/.ssh/config`, it takes precedence over the system config as personal settings (ssh uses the first value found)
 
-### セットアップ
+### Setup
 
-ホスト上で、このリポジトリ（`<repo>`）をカレントにして行う。
+Do this on the host with this repository (`<repo>`) as the current directory.
 
-1. コンテナ専用の鍵を作る（パスフレーズは空にする。下記「制約」）:
+1. Create a container-only key (with an empty passphrase; see "Constraints and known holes" below):
    ```bash
    mkdir -p capabilities/ssh/data
    ssh-keygen -t ed25519 -N '' -f capabilities/ssh/data/id_ed25519 -C "dcc"
-   chmod 700 capabilities/ssh/data; chmod 600 capabilities/ssh/data/id_ed25519   # bind 先でもホスト側のパーミッションが見える
+   chmod 700 capabilities/ssh/data; chmod 600 capabilities/ssh/data/id_ed25519   # the host-side permissions are visible at the bind target too
    ```
-2. GitHub に**デプロイキーまたは専用アカウントの鍵**として公開鍵（`id_ed25519.pub`）を登録する。書き込み権限は必要なリポジトリだけに絞る
-3. `dcc --creds ssh`（既存コンテナがあれば `dcc recreate --creds ssh`）で起動し、コンテナ内で `ssh -T git@github.com` が通ることを確認する
+2. Register the public key (`id_ed25519.pub`) on GitHub **as a deploy key or as a key of a dedicated account**. Limit write access to only the repositories that need it
+3. Start with `dcc --creds ssh` (`dcc recreate --creds ssh` if a container already exists) and confirm that `ssh -T git@github.com` works inside the container
 
-鍵の名前を変える場合は `config` の `IdentityFile` を合わせる。`initialize.sh ssh` が `data/` の存在を事前に警告する。
+If you rename the key, update `IdentityFile` in `config` to match. `initialize.sh ssh` warns in advance if `data/` is missing.
 
-### ホスト鍵の更新
+### Updating host keys
 
-GitHub がホスト鍵をローテーションした場合は `known_hosts` を再生成してコミットする:
+If GitHub rotates its host keys, regenerate `known_hosts` and commit it:
 
 ```bash
 curl -sS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com \(.)"' > capabilities/ssh/known_hosts
-ssh-keygen -lf capabilities/ssh/known_hosts   # 指紋を GitHub の公開情報と照合する
+ssh-keygen -lf capabilities/ssh/known_hosts   # compare the fingerprints with GitHub's published ones
 ```
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- 秘密鍵は本体内の全プロセスから読める。鍵の権限で被害を限定する設計であり、鍵そのものは守れない
-- パスフレーズ付き鍵は使えない。コンテナ内に `ssh-agent` の自動起動が無く、TTY の無い Bash ツールからは pinentry を出せない。パスフレーズ無しの鍵にするか、gpg の warm 相当の仕組みを足す必要がある（未実装）
-- SSH 署名（`gpg.format = ssh`）は `user.signingkey` にこの鍵を指定すれば可能だが、warm の仕組みは GPG 前提
-- inner container で SSH が必要な場合はワークスペース経由で明示的に渡すしかない
-- `capabilities/ssh/data/` は gitignore 済みで、commit しない。`config` と `known_hosts` は追跡対象だが GitHub の公開情報しか含まない
+- The private key is readable by every process in the agent container. The design limits damage through the key's permissions; the key itself cannot be protected
+- Passphrase-protected keys cannot be used. There is no automatic `ssh-agent` startup in the container, and pinentry cannot be shown from the TTY-less Bash tool. Either use a key without a passphrase or add a mechanism equivalent to gpg's warming (not implemented)
+- SSH signing (`gpg.format = ssh`) is possible by setting this key as `user.signingkey`, but the warming mechanism assumes GPG
+- If an inner container needs SSH, the only way is to pass it explicitly via the workspace
+- `capabilities/ssh/data/` is gitignored; do not commit it. `config` and `known_hosts` are tracked but contain only GitHub's public information

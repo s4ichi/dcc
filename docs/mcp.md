@@ -1,93 +1,93 @@
-# MCP サーバー（Claude Code）
+# MCP servers (Claude Code)
 
-このページは Claude Code の MCP の話。Codex CLI の MCP（`config.toml` の `[mcp_servers]`、`codex mcp login --no-browser`）は [codex.md](codex.md)。
+This page is about Claude Code's MCP. For Codex CLI's MCP (`[mcp_servers]` in `config.toml`, `codex mcp login --no-browser`), see [codex.md](codex.md).
 
-モジュール選択に関係なく使えるが、`~/.claude` / `~/.claude.json`（[claude-code.md](claude-code.md)）とワークスペースの上に成り立つので、`claude` モジュールの有無で「ホストの設定が見えるか」「token がどこに残るか」が変わる。以下で「共有時」は `claude` モジュール有効（ホストの `~/.claude` を rw 共有）、「非共有時」は無効（全ワークスペース共有の volume `dcc-claude-home`）を指す。
+It works regardless of module selection, but it rests on `~/.claude` / `~/.claude.json` ([claude-code.md](claude-code.md)) and the workspace, so whether the `claude` module is enabled changes "whether the host's settings are visible" and "where tokens stay". Below, "shared" means the `claude` module is enabled (the host's `~/.claude` is shared rw), and "not shared" means it is disabled (the volume `dcc-claude-home`, shared across all workspaces).
 
-MCP サーバーは「どのサーバーに繋ぐか（設定）」と「そのサーバーへの認証情報（OAuth token）」を別の場所に持ち、コンテナへの渡り方が違う。
+MCP servers keep "which servers to connect to (settings)" and "credentials for those servers (OAuth tokens)" in separate places, and they reach the container differently.
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| ホストの Claude Code の OAuth token（本体 `claudeAiOauth` と MCP `mcpOAuth`） | macOS Keychain（item `Claude Code-credentials`） | 1 つの blob にすべての token が入っている |
-| コンテナで取得した OAuth token | `~/.claude/.credentials.json`（mode 600） | 平文。共有時はホストのディスクに、非共有時は volume に置かれる |
-| MCP サーバーの設定 | `~/.claude.json`（user / local scope）、`<workspace>/.mcp.json`（project scope） | `headers` や `env` に API key を直書きすると秘密になる |
+| The host Claude Code's OAuth tokens (Claude Code's own `claudeAiOauth` and MCP's `mcpOAuth`) | macOS Keychain (item `Claude Code-credentials`) | All tokens are in a single blob |
+| OAuth tokens obtained in the container | `~/.claude/.credentials.json` (mode 600) | Plaintext. Placed on the host's disk when shared, in the volume when not shared |
+| MCP server settings | `~/.claude.json` (user / local scope), `<workspace>/.mcp.json` (project scope) | Become secrets if API keys are written directly in `headers` or `env` |
 
-## 境界
+## Boundary
 
-| 軸 | この設計 |
+| Axis | This design |
 |---|---|
-| できること | コンテナ内の Claude Code は、ワークスペースの `.mcp.json`（project scope）と、共有時はホストで設定済み（user scope）のサーバーを使える。remote サーバーの認証はコンテナ内で行う。stdio サーバーはコンテナ内に実行コマンドがあるものだけ |
-| 届く範囲 | 設定はコピー（user。共有時のみ）/ bind（project）で渡る。ホストの Keychain は渡さない。stdio サーバーが触れるのはコンテナ内と credential モジュールで渡したものだけ |
-| 鍵の渡し方 | **コンテナ内で認証して取得する**。ホストの token を橋渡しせず、コンテナ用に別系統の token を持つ。取得した token は `~/.claude/.credentials.json` に残り、recreate とワークスペースを跨いで再利用される |
+| What it can do | Claude Code in the container can use the workspace's `.mcp.json` (project scope) and, when shared, the servers configured on the host (user scope). Authentication for remote servers is done inside the container. stdio servers work only if their command exists in the container |
+| Reach | Settings are passed by copy (user; only when shared) / bind (project). The host's Keychain is not passed. stdio servers can touch only what is inside the container and what credential modules pass |
+| How the key is passed | **Authenticate and obtain inside the container**. The host's tokens are not bridged; the container holds a separate lineage of tokens. Obtained tokens stay in `~/.claude/.credentials.json` and are reused across recreate and workspaces |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナが乗っ取られた場合:
+If the agent container is taken over:
 
-- コンテナで取得した MCP の token（と Claude Code 本体の token）は `~/.claude/.credentials.json` から持ち出せる。`claude mcp logout <name>` / 各 IdP 側の失効で止める
-- ホストの Keychain の token には到達できない
-- `.mcp.json` に直書きした API key は読める（`${VAR}` 経由にする）
+- MCP tokens obtained in the container (and Claude Code's own token) can be exfiltrated from `~/.claude/.credentials.json`. Stop them with `claude mcp logout <name>` / revocation on each IdP
+- The tokens in the host's Keychain are unreachable
+- API keys written directly in `.mcp.json` can be read (use `${VAR}` instead)
 
-## なぜこの構成か
+## Why this design
 
-- **Keychain を渡さない**: コンテナは Linux で Keychain が無く、Claude Code にも Keychain の中身を export する手段や macOS 側でファイル保存へ切り替える設定が無い。橋渡しするには `security` コマンドでホストの blob を取り出してコンテナへ書き込む独自処理が要り、ホストの全 token（本体のログインを含む）をまとめて渡すことになる。ホストとコンテナで token を別系統にする方が境界として素直で、コンテナ側は独立に失効できる
-- **認証は 1 回で済む**: `~/.claude` は共有時はホストの bind、非共有時は固定名の external volume なので、どちらでもコンテナで取った token は `dcc recreate` / `clear` を跨いで残り、全ワークスペースで共有される
-- **callback ポートを公開しない**: 公開すればブラウザだけで認証が完了するが、`agent` サービス（本体）は netns 共有のため `ports` を書けず、sidecar 側で公開するとホストにポートが開く。「ホストへ公開しない」方針（[docker.md](docker.md)）を優先し、リダイレクト URL の貼り付けで済ませる
+- **Do not pass the Keychain**: the container is Linux and has no Keychain, and Claude Code has neither a means to export the Keychain contents nor a setting on macOS to switch to file storage. Bridging would require custom processing that extracts the host's blob with the `security` command and writes it into the container, which would hand over all of the host's tokens at once (including Claude Code's own login). Keeping separate token lineages for host and container is the cleaner boundary, and the container side can be revoked independently
+- **Authentication happens once**: `~/.claude` is a host bind when shared and a fixed-name external volume when not, so either way tokens obtained in the container survive `dcc recreate` / `clear` and are shared across all workspaces
+- **Do not publish the callback port**: publishing it would let authentication complete in the browser alone, but the `agent` service (agent container) cannot have `ports` because of the shared netns, and publishing on the sidecar would open a port on the host. The "do not publish to the host" policy ([docker.md](docker.md)) takes priority, and pasting the redirect URL is good enough
 
-## 仕組み
+## How it works
 
-| 対象 | ホスト側の実体 | コンテナ側 | 渡り方 |
+| Item | Host-side asset | Container side | How it gets there |
 |---|---|---|---|
-| user scope の設定 | `~/.claude.json` の `mcpServers` | `~/.claude.json`（ローカルコピー） | 共有時のみ。作成時点のスナップショット |
-| local scope の設定 | `~/.claude.json` の `projects.<ホストの絶対パス>.mcpServers` | 同上 | コピーはされるが**参照されない**（キーがホストのパス） |
-| project scope の設定 | `<workspace>/.mcp.json` | `/workspaces/<name>/.mcp.json` | ワークスペース bind でそのまま |
-| `.mcp.json` の承認状態 | `<workspace>/.claude/settings.local.json` | 同上 | 同上 |
-| OAuth token（ホスト） | macOS Keychain | なし | **渡さない** |
-| OAuth token（コンテナ） | `~/.claude/.credentials.json` の `mcpOAuth` | 同じファイル | コンテナ内で認証して取得 |
+| user scope settings | `mcpServers` in `~/.claude.json` | `~/.claude.json` (local copy) | Only when shared. Snapshot at creation time |
+| local scope settings | `projects.<host absolute path>.mcpServers` in `~/.claude.json` | same as above | Copied but **not referenced** (the key is the host path) |
+| project scope settings | `<workspace>/.mcp.json` | `/workspaces/<name>/.mcp.json` | As is, via the workspace bind |
+| Approval state of `.mcp.json` | `<workspace>/.claude/settings.local.json` | same as above | same as above |
+| OAuth tokens (host) | macOS Keychain | none | **Not passed** |
+| OAuth tokens (container) | `mcpOAuth` in `~/.claude/.credentials.json` | the same file | Authenticated and obtained inside the container |
 
-ホストで認証済みでも**コンテナの Claude Code からは未認証に見えるのが正常**で、`/mcp` に `needs authentication` と出る。Claude Code 本体のログイン（`claudeAiOauth`）も同じ扱いで、初回だけコンテナ内で `/login` する。
+Even if authenticated on the host, **it is normal for servers to appear unauthenticated to Claude Code in the container**, and `/mcp` shows `needs authentication`. Claude Code's own login (`claudeAiOauth`) is treated the same way: run `/login` inside the container the first time only.
 
-### remote サーバー（`http` / `sse`）の認証手順
+### Authenticating remote servers (`http` / `sse`)
 
-コンテナにはブラウザが無く、`localhost` のポートはホストに公開されていないので、OAuth の callback は**ブラウザ側で失敗させて、リダイレクト URL を手で貼り付ける**。
+The container has no browser and its `localhost` ports are not published to the host, so the OAuth callback is **allowed to fail in the browser, and the redirect URL is pasted by hand**.
 
-1. `dcc` で起動し、`/mcp` → 対象サーバー → `Authenticate`。または `claude mcp login <name>`（`--no-browser` で URL 表示のみ）
-2. Claude Code が `http://localhost:<port>/callback` を listen し、認可 URL を表示する
-3. その URL を**ホストのブラウザ**で開き、IdP にログインする
-4. IdP が `http://localhost:<port>/callback?code=...&state=...` にリダイレクトする。ホストの `localhost` では誰も listen していないので**接続エラーになる。これは想定どおり**
-5. アドレスバーの URL（`?code=...&state=...` を含む全体）をコピーし、Claude Code の `Or paste the redirect URL here:` に貼る
+1. Start with `dcc`, then `/mcp` → the target server → `Authenticate`. Or `claude mcp login <name>` (`--no-browser` only shows the URL)
+2. Claude Code listens on `http://localhost:<port>/callback` and shows the authorization URL
+3. Open that URL in **the host's browser** and log in to the IdP
+4. The IdP redirects to `http://localhost:<port>/callback?code=...&state=...`. Nothing listens on the host's `localhost`, so **you get a connection error. This is expected**
+5. Copy the URL from the address bar (the whole thing, including `?code=...&state=...`) and paste it at Claude Code's `Or paste the redirect URL here:`
 
-以降は refresh token で自動更新される。失敗したら `/mcp` に `needs authentication` と出るので同じ手順で再認証する。token を消すには `claude mcp logout <name>`。callback のポートは `MCP_OAUTH_CALLBACK_PORT` で固定できる（IdP に redirect URI を登録する必要がある場合）。
+After that it is refreshed automatically with the refresh token. If it fails, `/mcp` shows `needs authentication`; re-authenticate with the same steps. To delete the token, run `claude mcp logout <name>`. The callback port can be pinned with `MCP_OAUTH_CALLBACK_PORT` (when the redirect URI must be registered with the IdP).
 
-`headers` に `${VAR}` で API key を渡す構成なら、その環境変数を**コンテナ内**に用意する（`DCC_CONTAINER_ENV_<NAME>`、`local/compose.yml` の `services.agent.environment`、または `~/.claude/settings.json` の `env`。最後のものは共有時はホストにも効く。[customization.md](customization.md)）。
+If API keys are passed to `headers` via `${VAR}`, provide that environment variable **inside the container** (`DCC_CONTAINER_ENV_<NAME>`, `services.agent.environment` in `local/compose.yml`, or `env` in `~/.claude/settings.json`; the last also affects the host when shared; [customization.md](customization.md)).
 
-### スコープごとの扱い
+### Handling per scope
 
-- **user scope**: 共有時は、ホストで設定済みのサーバーがそのまま見える（非共有時は `~/.claude.json` を渡さないので見えない。コンテナ内で追加する）。ホスト側で後から `claude mcp add --scope user` しても既存コンテナには反映されない（`dcc recreate`）。コンテナ内で追加したものはホストに戻らず、recreate で消える
-- **local scope**: キーがワークスペースのホスト側絶対パス（`/Users/<user>/src/foo`）で、コンテナ内は `/workspaces/foo` なので一致せず、ホストで追加したサーバーは見えない。`HOST_HOME → $HOME` の symlink はホーム直下の解決用で、ワークスペースのパスは救えない。コンテナ内で `claude mcp add`（既定 = local）したものも recreate で消える。永続化したいなら project scope
-- **project scope**: ワークスペースは同一 bind なのでホストとコンテナで同じファイル。コンテナ内で `claude mcp add --scope project` すればホストにも反映される。初回利用時の承認（`enabledMcpjsonServers` 等）は `<workspace>/.claude/settings.local.json` に書かれ、これも共有される。やり直しは `claude mcp reset-project-choices`。`.mcp.json` の `command` / `args` / `env` / `url` / `headers` では `${VAR}` / `${VAR:-default}` が展開される
-- **一時的な指定**: `dcc exec -- --mcp-config <file>`（`--strict-mcp-config` で他を無視）
+- **user scope**: when shared, servers configured on the host are visible as is (when not shared, `~/.claude.json` is not passed, so they are not visible; add them inside the container). A later `claude mcp add --scope user` on the host is not reflected in an existing container (`dcc recreate`). Servers added inside the container do not flow back to the host and disappear on recreate
+- **local scope**: the key is the workspace's host-side absolute path (`/Users/<user>/src/foo`), while in the container it is `/workspaces/foo`, so they do not match and servers added on the host are not visible. The `HOST_HOME → $HOME` symlink is for resolving paths directly under the home directory and cannot rescue workspace paths. Servers added inside the container with `claude mcp add` (default = local) also disappear on recreate. Use project scope to persist them
+- **project scope**: the workspace is the same bind, so host and container see the same file. `claude mcp add --scope project` inside the container is reflected on the host too. Approval at first use (`enabledMcpjsonServers`, etc.) is written to `<workspace>/.claude/settings.local.json`, which is also shared. Redo with `claude mcp reset-project-choices`. In `command` / `args` / `env` / `url` / `headers` of `.mcp.json`, `${VAR}` / `${VAR:-default}` are expanded
+- **Temporary specification**: `dcc exec -- --mcp-config <file>` (`--strict-mcp-config` ignores the others)
 
-### stdio サーバー
+### stdio servers
 
-- 実行コマンドが**コンテナ内**に必要。イメージには `uvx` / `python3` / `node` / `npx` / `docker` / `go` がある。それ以外のランタイムが要るサーバーは `/mcp` に `failed` と出る。使うなら `local/Dockerfile` で足す（[customization.md](customization.md)）
-- `docker run -i ...` 型は sidecar の rootless dockerd で動く（[docker.md](docker.md)）。`-v` で bind できるのはワークスペース配下だけ。inner container から親 netns の `127.0.0.1` には届かない。cgroup のリソース制限は無視される
-- ホストのファイルやソケット（`~/.aws`、`/var/run/docker.sock` 等）に依存するサーバーは動かない。credential モジュールで渡しているものだけが使える
+- The command must exist **inside the container**. The image has `uvx` / `python3` / `node` / `npx` / `docker` / `go`. Servers that need other runtimes show `failed` in `/mcp`. To use them, add them with `local/Dockerfile` ([customization.md](customization.md))
+- `docker run -i ...` style servers run on the sidecar's rootless dockerd ([docker.md](docker.md)). Only paths under the workspace can be bound with `-v`. Inner containers cannot reach the parent netns's `127.0.0.1`. cgroup resource limits are ignored
+- Servers that depend on host files or sockets (`~/.aws`, `/var/run/docker.sock`, etc.) do not work. Only what credential modules pass is available
 
-### ホストへの影響
+### Effects on the host
 
-| コンテナ内の操作 | ホストへの反映 |
+| Operation in the container | Reflected on the host |
 |---|---|
-| remote サーバーの OAuth 認証 / `claude mcp logout` | 共有時は `~/.claude/.credentials.json` に書かれる / 消える（macOS のホストの Claude Code は参照しない）。非共有時はされない |
-| `claude mcp add --scope user` / local | されない（`~/.claude.json` はコンテナローカル） |
-| `claude mcp add --scope project`、`.mcp.json` の承認 | **される**（ワークスペース上） |
+| OAuth authentication of a remote server / `claude mcp logout` | When shared, written to / removed from `~/.claude/.credentials.json` (the host Claude Code on macOS does not read it). Not reflected when not shared |
+| `claude mcp add --scope user` / local | Not reflected (`~/.claude.json` is container-local) |
+| `claude mcp add --scope project`, approval of `.mcp.json` | **Reflected** (on the workspace) |
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- コンテナで取った token が平文で残る（共有時はホストの `~/.claude/.credentials.json`、非共有時は volume `dcc-claude-home`）。不要になったらコンテナ内で `claude mcp logout <name>` する
-- Keychain の橋渡しは今後も対応しない（意図的）
-- コンテナ内で user / local scope に追加した設定は recreate で消える（`~/.claude.json` がコンテナローカルのため）。project scope で回避する
-- remote サーバーへの通信は sidecar と共有する netns から外に出る。ホストのプロキシや VPN 依存の到達性は Docker ランタイム次第
-- `.mcp.json` をワークスペースに commit する場合、`url` / `headers` に token や内部ホスト名を直書きしない
+- Tokens obtained in the container stay in plaintext (in the host's `~/.claude/.credentials.json` when shared, in the volume `dcc-claude-home` when not). When no longer needed, run `claude mcp logout <name>` in the container
+- Keychain bridging will not be supported going forward either (intentional)
+- Settings added to user / local scope inside the container disappear on recreate (because `~/.claude.json` is container-local). Work around it with project scope
+- Traffic to remote servers leaves through the netns shared with the sidecar. Reachability that depends on the host's proxy or VPN depends on the Docker runtime
+- If you commit `.mcp.json` to the workspace, do not write tokens or internal hostnames directly in `url` / `headers`

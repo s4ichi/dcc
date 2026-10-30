@@ -1,93 +1,93 @@
-# GitHub CLI (`gh`) と HTTPS git の認証
+# GitHub CLI (`gh`) and HTTPS git authentication
 
-**モジュール名: `gh`** — `dcc --creds gh` を指定したときだけ有効になる（[credentials.md](credentials.md)）。
+**Module name: `gh`** — enabled only when `dcc --creds gh` is given ([credentials.md](credentials.md)).
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| ホストの `gh` の token | macOS Keychain | 個人アカウントの OAuth token。scope は広いことが多い |
-| コンテナ用の refresh token | volume `dcc-gh-home`（`DCC_GH_HOME_VOLUME`）の `hosts.yml` | `dcc gh-login` で得る。access token を発行し直せる。1 回使うたびに新しいものに入れ替わる。**平文** |
-| access token | gh-token sidecar が都度発行 → 本体（HTTP） | 数時間で失効する（expiring credentials のとき） |
+| The host's `gh` token | macOS Keychain | OAuth token of the personal account. Often has broad scopes |
+| Refresh token for the container | `hosts.yml` in volume `dcc-gh-home` (`DCC_GH_HOME_VOLUME`) | Obtained with `dcc gh-login`. Can re-issue access tokens. Replaced with a new one on every use. **Plaintext** |
+| Access token | Issued on each request by the gh-token sidecar → agent container (HTTP) | Expires in a few hours (with expiring credentials) |
 
-## 境界
+## Boundary
 
-| 軸 | この設計 |
+| Axis | This design |
 |---|---|
-| できること | 本体は「sidecar が動いている間、`dcc gh-login` したアカウントの access token を取得する」ことだけができる。token の scope が上限 |
-| 届く範囲 | 本体には `~/.config/gh` を bind しない。refresh token を含む gh の状態は非特権の `gh-token` sidecar にだけ volume で渡す。ホストの Keychain と `~/.config/gh` はどこにも渡さない |
-| 鍵の渡し方 | **代行実行**。sidecar が `gh auth token` を実行し（必要なら gh が refresh する）、本体は access token だけを受け取る。本体の `gh` は wrapper が、git は credential helper が実行のたびに取り直し、本体には保存しない |
+| What it can do | The agent container can only "obtain an access token for the account logged in with `dcc gh-login`, while the sidecar is running". The token's scope is the ceiling |
+| Reach | `~/.config/gh` is not bound into the agent container. gh's state, including the refresh token, is passed as a volume only to the unprivileged `gh-token` sidecar. The host's Keychain and `~/.config/gh` are passed nowhere |
+| How the key is passed | **Delegated execution**. The sidecar runs `gh auth token` (gh refreshes if needed), and the agent container receives only the access token. In the agent container, `gh` (via a wrapper) and git (via a credential helper) fetch it anew on every run, and nothing is stored in the agent container |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナが乗っ取られた場合:
+If the agent container is taken over:
 
-- 攻撃者が得られるのは「sidecar が動いている間、access token を取得する能力」まで。持ち出した access token は数時間で失効する
-- refresh token は本体に無いので持ち出せない。ホストの token にも到達できない
-- endpoint は共有 netns の `127.0.0.1` にしかないため、inner container・ホスト・他の compose project からは届かない
-- 止めるには `dcc stop`、または GitHub の Settings → Applications で GitHub CLI の認可を revoke する
+- The attacker gains at most "the ability to obtain access tokens while the sidecar is running". An exfiltrated access token expires in a few hours
+- The refresh token is not in the agent container, so it cannot be exfiltrated. The host's token is also unreachable
+- The endpoint exists only on `127.0.0.1` in the shared netns, so it is unreachable from inner containers, the host, and other compose projects
+- To stop it, run `dcc stop`, or revoke the GitHub CLI authorization in GitHub's Settings → Applications
 
-sidecar は自前の `server.py` しか動かさず、access log は method / path / status のみで token を含めない。
+The sidecar runs nothing but its own `server.py`, and its access log contains only method / path / status, never tokens.
 
-## なぜこの構成か
+## Why this design
 
-- **gh の expiring credentials（v2.103.0〜）を使う**: `gh auth login --expiring` は、数時間で失効する access token と、1 回使うたびに入れ替わる refresh token の組を発行する。access token が漏れても被害は失効までで止まる
-- **本体で `--expiring` しない**: refresh token は access token を発行し直せるので、本体に置くと持ち出されたときに無期限 token と変わらない。aws / gpg と同じく sidecar が代行し、本体には失効する token だけを渡す
-- **本体へは `GH_TOKEN` で渡し、毎回取り直す**: gh は `GH_TOKEN` / `GITHUB_TOKEN` を refresh しない。wrapper は実行のたびに sidecar から取得するので、失効の影響は 1 回の実行の中に収まる（gh 自身も「`gh auth token` の結果をキャッシュせず毎回呼べ」としている）
-- **git は自前の credential helper**: `gh auth git-credential` は refresh token を持つ gh でしか動かない。本体の helper は sidecar から取った token を返すだけで、`store` は何もしない。キャッシュ helper を挟まないので、gh が推奨する git 2.46 の ephemeral 指定（本体の git は 2.39）が無くても古い token が残らない
-- **状態は固定名の named volume で全ワークスペース共有**: refresh token は単回使用で、2 つのプロセスが同じものを使うと token 一式が revoke されうる。gh は `~/.config/gh/refresh.lock` の flock + reload で直列化するので、全 sidecar が同じファイルシステム上の同じ lock を見る必要がある。VM 内のローカル volume なら flock が確実に効く（macOS のホスト bind 越しのコンテナ間 flock は保証されない）。ホストのリポジトリ配下に平文の token も残らない
-- **ログインはワークスペースから独立**: `dcc gh-login` は sidecar のイメージを `docker run` して volume に書くだけで、ワークスペースのコンテナにも Docker sidecar にも依存しない
+- **Use gh's expiring credentials (v2.103.0+)**: `gh auth login --expiring` issues a pair of an access token that expires in a few hours and a refresh token that is rotated on every use. If the access token leaks, the damage stops at its expiry
+- **Do not use `--expiring` in the agent container**: a refresh token can re-issue access tokens, so if it sat in the agent container and were exfiltrated it would be no different from a non-expiring token. As with aws / gpg, the sidecar acts on the agent's behalf and the agent container receives only expiring tokens
+- **Pass it to the agent container as `GH_TOKEN` and fetch it every time**: gh does not refresh `GH_TOKEN` / `GITHUB_TOKEN`. The wrapper fetches from the sidecar on every run, so the effect of expiry is confined to a single run (gh itself also says "do not cache the result of `gh auth token`; call it every time")
+- **A custom credential helper for git**: `gh auth git-credential` works only with a gh that holds the refresh token. The agent container's helper just returns the token fetched from the sidecar, and `store` does nothing. Since no caching helper is involved, stale tokens do not linger even without git 2.46's ephemeral option that gh recommends (the agent container's git is 2.39)
+- **State lives in a fixed-name named volume shared across all workspaces**: the refresh token is single-use, and if two processes use the same one, the whole token set may be revoked. gh serializes with flock + reload on `~/.config/gh/refresh.lock`, so all sidecars must see the same lock on the same filesystem. A local volume inside the VM makes flock work reliably (flock across containers over a macOS host bind is not guaranteed). It also leaves no plaintext token under the host's repository
+- **Login is independent of workspaces**: `dcc gh-login` just runs the sidecar image with `docker run` and writes into the volume; it depends neither on a workspace's containers nor on the Docker sidecar
 
-## 仕組み
+## How it works
 
 ```
- agent (本体)                                       gh-token (sidecar, 非特権)
-  /usr/local/bin/gh = gh-token-client.sh             python3 /server.py が 127.0.0.1:8082 で listen
+ agent (agent container)                            gh-token (sidecar, unprivileged)
+  /usr/local/bin/gh = gh-token-client.sh             python3 /server.py listens on 127.0.0.1:8082
    GH_TOKEN=<GET /token> exec /usr/bin/gh     ──►     GET /token
   git: credential.https://github.com.helper            └─ gh auth token --hostname $GH_HOST
-   = gh-token-client.sh git-credential        ──►        （失効が近ければ refresh。refresh.lock で直列化）
+   = gh-token-client.sh git-credential        ──►        (refresh if near expiry; serialized by refresh.lock)
                                                      volume dcc-gh-home → /home/gh/.config/gh (rw)
-        └───────── netns 共有（両者とも network_mode: service:docker）─────────┘
+        └───────── shared netns (both network_mode: service:docker) ─────────┘
 ```
 
-| 対象 | 行き先 | モード |
+| Item | Destination | Mode |
 |---|---|---|
-| volume `dcc-gh-home`（`DCC_GH_HOME_VOLUME`） | sidecar `/home/gh/.config/gh` | rw |
-| `<repo>/capabilities/gh/gh-token-client.sh` | 本体 `/usr/local/lib/dcc/gh-token-client.sh`、`/usr/local/bin/gh` | ro |
-| access token | 本体（HTTP。環境変数 / ファイルには残さない） | — |
+| volume `dcc-gh-home` (`DCC_GH_HOME_VOLUME`) | sidecar `/home/gh/.config/gh` | rw |
+| `<repo>/capabilities/gh/gh-token-client.sh` | agent container `/usr/local/lib/dcc/gh-token-client.sh`, `/usr/local/bin/gh` | ro |
+| access token | agent container (HTTP; not left in environment variables / files) | — |
 
-### セットアップ
+### Setup
 
-ホストで一度だけ:
+Once, on the host:
 
 ```bash
-dcc gh-login                          # gh auth login --expiring を sidecar のイメージで実行
-dcc gh-login --scopes read:packages   # 追加の scope が要るとき（引数は gh auth login にそのまま渡る）
+dcc gh-login                          # runs gh auth login --expiring with the sidecar image
+dcc gh-login --scopes read:packages   # when extra scopes are needed (arguments go straight to gh auth login)
 ```
 
-device flow で表示された URL をホストのブラウザで開き、one-time code を入力する。最後に `gh auth status` が出るので、token が expiring になっているか（失効時刻が表示されるか）を確認する。
-その後 `dcc --creds gh`（既存コンテナなら `dcc recreate --creds gh`）で起動する。コンテナ内では `gh auth status` / `gh api user`、`git ls-remote https://github.com/<repo>` で確認できる。
+Open the URL shown by the device flow in the host's browser and enter the one-time code. At the end `gh auth status` is printed; check that the token is expiring (that an expiry time is shown).
+Then start with `dcc --creds gh` (`dcc recreate --creds gh` for an existing container). Inside the container, check with `gh auth status` / `gh api user` and `git ls-remote https://github.com/<repo>`.
 
-- 既定の scope は gh の OAuth app のもの（`repo` / `read:org` / `gist`）。classic scope なので fine-grained PAT より広い
-- 組織が OAuth app を制限している場合は、GitHub CLI の利用を組織で承認する必要がある
-- GitHub Enterprise は `DCC_GH_HOST` で指定する。GHES 3.23 未満は expiring に対応せず、無期限 token にフォールバックする（`gh auth status` で分かる）
-- ログインし直すときも `dcc gh-login`。動いている sidecar は次のリクエストから新しい token を返す
+- The default scopes are those of gh's OAuth app (`repo` / `read:org` / `gist`). These are classic scopes, so broader than a fine-grained PAT
+- If the organization restricts OAuth apps, the organization must approve use of GitHub CLI
+- Specify GitHub Enterprise with `DCC_GH_HOST`. GHES older than 3.23 does not support expiring tokens and falls back to a non-expiring token (visible in `gh auth status`)
+- To log in again, also use `dcc gh-login`. A running sidecar returns the new token from the next request
 
-### 詳細
+### Details
 
-- `GET /token` は `gh auth token --hostname $GH_HOST` の出力を `text/plain` で返す。失敗（未ログイン、refresh token の失効など）は 503 で、本文は対処（`dcc gh-login`）だけ。gh の stderr は sidecar のログにだけ出す。`/token` 以外は 404
-- sidecar の gh は `GH_TOKEN` / `GH_DEBUG` などを落とした環境で動かす（`GH_TOKEN` があると gh は refresh しない。`GH_DEBUG` は使わない）
-- 本体の wrapper は `gh auth login|logout|refresh|switch|setup-git` を拒否し、`dcc gh-login` を案内する。sidecar に届かないときは警告して token 無しで `/usr/bin/gh` を実行する
-- credential helper は postCreate（root 側の `postCreate-root.sh`）が `git config --system credential.https://<host>.helper` に登録する（`~/.gitconfig` は ro）。ホストの `~/.gitconfig` 由来の helper（`osxkeychain` 等）より先に問い合わせられ、token を返したところで git は次の helper に進まない
-- sidecar の gh は `GH_VERSION`（`capabilities/gh/Dockerfile` の ARG）で版を固定する。expiring には 2.103.0 以上が要る
-- 旧方式（`capabilities/gh/data/` を本体に rw bind）の `hosts.yml` は使われなくなった。中の token は GitHub 側で revoke し、ディレクトリを消す
+- `GET /token` returns the output of `gh auth token --hostname $GH_HOST` as `text/plain`. Failures (not logged in, refresh token expired, etc.) are 503, with a body containing only the remedy (`dcc gh-login`). gh's stderr goes only to the sidecar's log. Anything other than `/token` is 404
+- The sidecar's gh runs in an environment with `GH_TOKEN` / `GH_DEBUG` etc. removed (with `GH_TOKEN` set, gh does not refresh; `GH_DEBUG` is not used)
+- The agent container's wrapper rejects `gh auth login|logout|refresh|switch|setup-git` and points to `dcc gh-login`. If the sidecar is unreachable, it warns and runs `/usr/bin/gh` without a token
+- postCreate (the root-side `postCreate-root.sh`) registers the credential helper with `git config --system credential.https://<host>.helper` (`~/.gitconfig` is ro). It is queried before helpers from the host's `~/.gitconfig` (`osxkeychain`, etc.), and once it returns a token git does not proceed to the next helper
+- The sidecar's gh version is pinned with `GH_VERSION` (an ARG in `capabilities/gh/Dockerfile`). Expiring tokens need 2.103.0 or later
+- The `hosts.yml` of the old scheme (`capabilities/gh/data/` rw-bound into the agent container) is no longer used. Revoke the token in it on GitHub and delete the directory
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- access token は本体内の全プロセスから読める。失効までは持ち出して使える
-- 1 回の `gh` の実行が access token の失効をまたぐ（長い `gh run watch` など）と、途中で認証に失敗する
-- refresh token の寿命は GitHub が公表していない。切れたら endpoint が 503 を返すので `dcc gh-login` し直す
-- volume の `hosts.yml` に PAT（`gh-login` で token を貼り付けた場合を含む）や無期限 token が入っていれば、sidecar はそれをそのまま配る。短命にはならないが、本体に保存されない点は同じ
-- `GH_HOST` は 1 つ。複数ホストを使い分けるなら `local/compose.yml` で sidecar を足す
-- inner container からは endpoint が見えない。inner container に token を渡すには明示的に環境変数等で渡すしかない
-- `dcc clear --volumes` でも `dcc-gh-home` は消えない（外部 volume）。消すときは `docker volume rm dcc-gh-home`
+- The access token is readable by every process in the agent container. Until it expires, it can be exfiltrated and used
+- If a single `gh` run spans the expiry of the access token (a long `gh run watch`, etc.), authentication fails partway
+- GitHub does not publish the lifetime of refresh tokens. When it expires the endpoint returns 503, so run `dcc gh-login` again
+- If the volume's `hosts.yml` holds a PAT (including when a token was pasted in `gh-login`) or a non-expiring token, the sidecar hands it out as is. It is not short-lived, but it is still not stored in the agent container
+- Only one `GH_HOST`. To use multiple hosts, add sidecars with `local/compose.yml`
+- Inner containers cannot see the endpoint. The only way to give an inner container a token is to pass it explicitly, e.g. via environment variables
+- `dcc clear --volumes` does not remove `dcc-gh-home` (external volume). To delete it, run `docker volume rm dcc-gh-home`

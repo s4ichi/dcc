@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# 全ワークスペース横断。本体コンテナをワークスペースラベル (dcc / devcontainer CLI のどちらか) で
-# 列挙し、compose プロジェクト単位で操作する。
+# Across all workspaces. Enumerates agent containers by workspace label (from either dcc or the devcontainer CLI)
+# and operates per compose project.
 
 list_containers() {
   local ids id
@@ -34,9 +34,9 @@ image={{.Config.Image}}
   done
 }
 
-# ワークスペースを持つ全 compose プロジェクトで、プロジェクト単位の関数 ($@) を 1 回ずつ実行する。
-# COMPOSE_PROJECT_NAME を差し替えた subshell で呼ぶので、関数側はワークスペース単位のときと同じでよい。
-# -a: 停止中のコンテナしか無いプロジェクトも対象にする。どれかが失敗しても残りは実行し、最後に失敗する
+# Runs a per-project function ($@) once for every compose project that has a workspace.
+# It is called in a subshell with COMPOSE_PROJECT_NAME swapped, so the function can be the same as in the per-workspace case.
+# -a: also include projects that only have stopped containers. If any fails, the rest still run, and it fails at the end
 for_each_project() {
   local ps_opts="" ids id project seen=" " failed=0
   [ "${1:-}" != -a ] || { ps_opts=-a; shift; }

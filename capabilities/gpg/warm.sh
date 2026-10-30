@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 署名鍵のパスフレーズを gpg-signer sidecar 内の gpg-agent にキャッシュする (ホストの対話ターミナルで実行)。
-# キャッシュは sidecar の寿命いっぱい残るので、作り直すまで 1 回でよい。dcc は claude 起動前に自動で呼ぶ。
-#   warm.sh [workspace]     ワークスペースを持つ本体コンテナから sidecar を探す (既定: カレント)
-#   warm.sh -p <project>    compose プロジェクト名で指定
+# Cache the signing key's passphrase in gpg-agent inside the gpg-signer sidecar (run in an interactive terminal on the host).
+# The cache lasts for the sidecar's lifetime, so once is enough until it is recreated. dcc calls this automatically before starting claude.
+#   warm.sh [workspace]     find the sidecar from the agent container that has the workspace (default: current directory)
+#   warm.sh -p <project>    specify by compose project name
 set -euo pipefail
 
 project=""

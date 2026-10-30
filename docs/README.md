@@ -1,71 +1,71 @@
 # docs
 
-Claude Code / Codex CLI 用コンテナ設定の仕様と、ホスト ⇔ コンテナ間で認証情報や設定をどう受け渡しているか
-（境界の扱い）をまとめたもの。使い始め方はリポジトリ直下の [README.md](../README.md)。
+The specification of the container setup for Claude Code / Codex CLI, and how credentials and settings are handed between
+host and container (how the boundaries are handled). For getting started, see [README.md](../README.md) at the repository root.
 
-読む順の目安: 仕組みを知りたいなら [architecture.md](architecture.md)、何が守られて何が守られないかを
-知りたいなら [boundaries.md](boundaries.md) → 使うモジュールのページ。
+Suggested reading order: to learn how it works, [architecture.md](architecture.md); to learn what is and is not protected,
+[boundaries.md](boundaries.md) → the pages of the modules you use.
 
-## 全体
+## Overview
 
-| ファイル | 内容 |
+| File | Contents |
 |---|---|
-| [architecture.md](architecture.md) | 構成要素、生成フロー、compose プロジェクトの構造、ライフサイクル、CLI |
-| [boundaries.md](boundaries.md) | ホストとの境界の総論。3 つの軸、設計原則、境界ごとの要約、マウント一覧 |
-| [credentials.md](credentials.md) | credential モジュールの選択的付与。`--creds` の指定方法、drift の挙動、overlay の仕組み、モジュールの追加 |
-| [customization.md](customization.md) | `DCC_*` 環境変数と `local/` による利用者ごとのカスタマイズ、ホスト側の前提 |
-| [devcontainer.md](devcontainer.md) | `dcc` を使わず devcontainer CLI / VS Code から compose ファイルを参照して使う方法 |
+| [architecture.md](architecture.md) | Components, generation flow, structure of the compose project, lifecycle, CLI |
+| [boundaries.md](boundaries.md) | Overview of the boundaries with the host. The 3 axes, design principles, summary by boundary, mounts |
+| [credentials.md](credentials.md) | Selective granting of credential modules. How to specify `--creds`, drift behavior, how overlays work, adding a module |
+| [customization.md](customization.md) | Per-user customization with `DCC_*` environment variables and `local/`, host-side assumptions |
+| [devcontainer.md](devcontainer.md) | How to use the compose files from the devcontainer CLI / VS Code without `dcc` |
 
-## 境界ごとのページ
+## Per-boundary pages
 
-| ファイル | 対象 | モジュール | ホスト側の実体 | コンテナ側 |
+| File | Subject | Module | Host side | Container side |
 |---|---|---|---|---|
-| [gpg.md](gpg.md) | GPG 署名鍵・公開鍵・パスフレーズ | `gpg` | `~/.gnupg/private-keys-v1.d` + export した公開鍵 | `gpg-signer` sidecar（本体は署名 API に委譲） |
-| [aws.md](aws.md) | AWS 認証情報 | `aws` | `~/.aws/config` + `~/.aws/login/cache`（sidecar に ro） | 一時 credential を `AWS_CONTAINER_CREDENTIALS_FULL_URI` で取得 |
-| [ssh.md](ssh.md) | SSH 鍵・known_hosts | `ssh` | `<repo>/capabilities/ssh/data/`（gitignore） | `~/.ssh` (ro) |
-| [github.md](github.md) | GitHub CLI (`gh`) と HTTPS git の認証（expiring token） | `gh` | volume `dcc-gh-home`（`dcc gh-login` が書く。`gh-token` sidecar に rw） | 短命の access token を `gh` の wrapper / git の credential helper で都度取得 |
-| [git.md](git.md) | gitconfig、safe.directory、署名設定 | 常時 | `~/.gitconfig` | `~/.gitconfig` (ro) + system gitconfig |
-| [claude-code.md](claude-code.md) | Claude Code の設定・セッション・プラグイン | `claude` | `~/.claude`、`~/.claude.json` | 有効時 `~/.claude` (rw)。無効時は全ワークスペース共有の空の volume |
-| [codex.md](codex.md) | Codex CLI の設定・認証・セッション、Codex 自身の sandbox の扱い | `codex` | `~/.codex`（`auth.json` = token を含む） | 有効時 `~/.codex` (rw)。無効時は全ワークスペース共有の空の volume |
-| [mcp.md](mcp.md) | Claude Code の MCP サーバーの設定と OAuth token | 常時（`claude` に依存） | 設定は `~/.claude.json` / `.mcp.json`。token は macOS Keychain（**渡さない**） | コンテナ内で認証して `~/.claude/.credentials.json` に保存 |
-| [docker.md](docker.md) | Docker（rootless sidecar）と TLS 証明書 | 常時 | なし（ホストの Docker は使わない） | `DOCKER_HOST=tcp://docker:2376` + `/certs` (ro) |
+| [gpg.md](gpg.md) | GPG signing key, public keys, passphrase | `gpg` | `~/.gnupg/private-keys-v1.d` + exported public keys | `gpg-signer` sidecar (the agent container delegates to the signing API) |
+| [aws.md](aws.md) | AWS credentials | `aws` | `~/.aws/config` + `~/.aws/login/cache` (ro to the sidecar) | Temporary credentials fetched via `AWS_CONTAINER_CREDENTIALS_FULL_URI` |
+| [ssh.md](ssh.md) | SSH key, known_hosts | `ssh` | `<repo>/capabilities/ssh/data/` (gitignored) | `~/.ssh` (ro) |
+| [github.md](github.md) | Authentication for GitHub CLI (`gh`) and HTTPS git (expiring token) | `gh` | volume `dcc-gh-home` (written by `dcc gh-login`; rw to the `gh-token` sidecar) | Short-lived access token fetched on each use by the `gh` wrapper / git credential helper |
+| [git.md](git.md) | gitconfig, safe.directory, signing settings | always | `~/.gitconfig` | `~/.gitconfig` (ro) + system gitconfig |
+| [claude-code.md](claude-code.md) | Claude Code settings, sessions, plugins | `claude` | `~/.claude`, `~/.claude.json` | When enabled, `~/.claude` (rw). When disabled, an empty volume shared by all workspaces |
+| [codex.md](codex.md) | Codex CLI settings, authentication, sessions, and handling of Codex's own sandbox | `codex` | `~/.codex` (`auth.json` = contains the token) | When enabled, `~/.codex` (rw). When disabled, an empty volume shared by all workspaces |
+| [mcp.md](mcp.md) | Claude Code MCP server settings and OAuth tokens | always (depends on `claude`) | Settings in `~/.claude.json` / `.mcp.json`. Tokens in the macOS Keychain (**not passed**) | Authenticated inside the container and stored in `~/.claude/.credentials.json` |
+| [docker.md](docker.md) | Docker (rootless sidecar) and TLS certificates | always | None (the host's Docker is not used) | `DOCKER_HOST=tcp://docker:2376` + `/certs` (ro) |
 
-「モジュール」列の名前を `dcc --creds <name>` で指定したときだけコンテナに渡る。「常時」は選択に関係なくマウントされる。
+A module is passed to the container only when its name in the "Module" column is given with `dcc --creds <name>`. "always" is mounted regardless of the selection.
 
-### 各ページの構成
+### Page structure
 
-境界ごとのページは同じ見出しで書く。本体コンテナはエージェント（Claude Code / Codex）が任意コードを実行しうる場所として、
-**侵害されうる前提**で境界を説明する（[boundaries.md](boundaries.md)）。
+Per-boundary pages use the same headings. The agent container is where an agent (Claude Code / Codex) may run arbitrary code,
+so boundaries are explained **assuming it may be compromised** ([boundaries.md](boundaries.md)).
 
-| 節 | 書くこと |
+| Section | What to write |
 |---|---|
-| 守るもの | 漏れると困る実体と、その所在・性質 |
-| 境界 | 3 つの軸で 1 行ずつ。できること（許す操作）/ 届く範囲（到達できるファイル・リソース）/ 鍵の渡し方（代行実行、ストア経由、平文、直読みのどれか） |
-| 侵害時に漏れるもの | 本体コンテナが乗っ取られた場合に、攻撃者が得られる能力の上限 |
-| なぜこの構成か | 代替案と、選ばなかった理由 |
-| 仕組み | マウント表、処理の流れ、セットアップ手順 |
-| 制約・既知の穴 | 意図的に許容しているリスクと未対応事項 |
+| What it protects | The things that must not leak, where they live, and their nature |
+| Boundary | One line for each of the 3 axes. What it can do (allowed operations) / what it can reach (reachable files and resources) / how the key is passed (one of delegated execution, via a store, plaintext, direct read) |
+| What leaks on compromise | The upper bound of capabilities an attacker gets if the agent container is taken over |
+| Why this design | Alternatives and why they were not chosen |
+| How it works | Mount table, processing flow, setup steps |
+| Constraints and known holes | Risks deliberately accepted and unaddressed items |
 
-## 用語
+## Terminology
 
-| 用語 | 意味 |
+| Term | Meaning |
 |---|---|
-| ホスト | `dcc` を実行する開発者のマシン |
-| ワークスペース | コンテナに渡すプロジェクトディレクトリ。コンテナ内では `/workspaces/<basename>` |
-| 本体（本体コンテナ） | compose の `agent` サービス。エージェントが動く非特権のコンテナ |
-| エージェント | 本体で動かす CLI。`claude`（Claude Code）か `codex`（Codex CLI）。両方とも同じイメージに入っており、`--agent` で起動のたびに選ぶ |
-| Docker sidecar | compose の `docker` サービス。rootless の dockerd を提供する。`privileged` はここだけ |
-| モジュール sidecar | credential モジュールが追加する非特権の sidecar（`gpg-signer` / `aws-credentials`） |
-| inner container | 本体から `docker run` して Docker sidecar の中で動くコンテナ |
-| credential モジュール | `--creds` で選ぶ単位。実体は compose overlay `capabilities/<name>/compose.yml` |
-| base / overlay | base は常に使う `docker-compose.yml`。overlay は `-f` で後ろに重ねる compose 断片 |
-| drift | 既存コンテナに焼き込まれた選択と、今回の要求との不一致 |
-| warm | 署名鍵のパスフレーズを `gpg-signer` 内の gpg-agent にキャッシュさせること |
-| `<repo>` | このリポジトリの clone 先（`DCC_CONFIG_DIR`。既定は `~/.config/dcc`） |
+| host | The developer's machine that runs `dcc` |
+| workspace | The project directory passed to the container. `/workspaces/<basename>` inside the container |
+| agent container | The compose `agent` service. The unprivileged container where the agent runs |
+| agent | The CLI run in the agent container. `claude` (Claude Code) or `codex` (Codex CLI). Both are in the same image, chosen with `--agent` on each launch |
+| Docker sidecar | The compose `docker` service. Provides a rootless dockerd. The only `privileged` one |
+| module sidecar | An unprivileged sidecar added by a credential module (`gpg-signer` / `aws-credentials`) |
+| inner container | A container started with `docker run` from the agent container, running inside the Docker sidecar |
+| credential module | The unit chosen with `--creds`. Concretely, the compose overlay `capabilities/<name>/compose.yml` |
+| base / overlay | base is the always-used `docker-compose.yml`. An overlay is a compose fragment stacked after it with `-f` |
+| drift | A mismatch between the selection baked into an existing container and the current request |
+| warm | Having the gpg-agent in `gpg-signer` cache the signing key's passphrase |
+| `<repo>` | Where this repository is cloned (`DCC_CONFIG_DIR`; default `~/.config/dcc`) |
 
-## 前提
+## Assumptions
 
-- ホストは macOS を主に想定している（macOS の gpg-agent / ssh-agent / Keychain の制約が設計理由の一部になっている）。
-  Linux ホストでも同じ設計で動く（[customization.md](customization.md) の「ホスト OS 依存」）
-- ホストに `docker`（compose plugin 込み）がインストールされていること。`devcontainer` CLI は `dcc` には不要（devcontainer から使う場合のみ。[devcontainer.md](devcontainer.md)）
-- 本体コンテナのユーザーは `agent`（uid 1000）。ホストの uid とは一致しない前提で設計している（[git.md](git.md) の safe.directory を参照）
+- The host is primarily assumed to be macOS (constraints of macOS's gpg-agent / ssh-agent / Keychain are part of the design rationale).
+  The same design also works on Linux hosts ("Host OS dependencies" in [customization.md](customization.md))
+- `docker` (with the compose plugin) is installed on the host. The `devcontainer` CLI is not needed for `dcc` (only when using it from devcontainer; [devcontainer.md](devcontainer.md))
+- The user of the agent container is `agent` (uid 1000). The design assumes it does not match the host's uid (see safe.directory in [git.md](git.md))
