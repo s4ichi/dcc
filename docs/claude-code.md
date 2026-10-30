@@ -1,86 +1,86 @@
-# Claude Code の設定・状態
+# Claude Code settings and state
 
-**モジュール名: `claude`** — `dcc --creds claude` を指定したときだけホストの `~/.claude` を共有する（[credentials.md](credentials.md)）。
-外した場合も Claude Code は動くが、ホストの設定・履歴・認証とは無関係な空の環境になる（下記）。
+**Module name: `claude`** — the host's `~/.claude` is shared only when `dcc --creds claude` is given ([credentials.md](credentials.md)).
+Without it Claude Code still works, but in an empty environment unrelated to the host's settings, history, and authentication (see below).
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| `~/.claude/.credentials.json` | ホスト（Linux）/ コンテナ | Claude Code 本体と MCP サーバーの OAuth token。macOS のホストは Keychain を使うため、このファイルはコンテナ側が書く |
-| `~/.claude/settings.json` | ホスト | permissions、hooks、env。**書き換えられると Claude Code 自身の権限が変わる** |
-| `~/.claude/projects/` | ホスト | セッション履歴・メモリ（会話内容） |
-| `~/.claude/plugins/`、`skills/`、`commands/`、`agents/` | ホスト | ユーザー定義 |
-| `~/.claude.json` | ホスト | グローバル状態（onboarding、MCP サーバー設定、プロジェクト一覧、旧形式の認証情報を含むことがある） |
+| `~/.claude/.credentials.json` | host (Linux) / container | OAuth tokens for Claude Code itself and MCP servers. A macOS host uses the Keychain, so this file is written by the container side |
+| `~/.claude/settings.json` | host | permissions, hooks, env. **If rewritten, Claude Code's own permissions change** |
+| `~/.claude/projects/` | host | Session history and memory (conversation contents) |
+| `~/.claude/plugins/`, `skills/`, `commands/`, `agents/` | host | User definitions |
+| `~/.claude.json` | host | Global state (onboarding, MCP server settings, project list; may include old-format credentials) |
 
-## 境界
+## Boundary
 
-| 軸 | モジュール有効（ホストと共有） | モジュール無効（空の volume） |
+| Axis | Module enabled (shared with the host) | Module disabled (empty volume) |
 |---|---|---|
-| できること | コンテナ内の Claude Code はホストと同じ設定・履歴・プラグインで動き、それらを**書き換えられる**。`~/.claude.json` だけはコンテナローカルのコピー | Claude Code の既定設定で動く。ホストのものは何も見えず、何も変えられない |
-| 届く範囲 | `~/.claude` はホストと **rw で共有**。`~/.claude.json` は ro で渡し、postCreate がコピーする | ホストの `~/.claude` / `~/.claude.json` には到達しない。`~/.claude` は全ワークスペース共有の volume |
-| 鍵の渡し方 | Claude Code 本体と MCP の認証はコンテナ内で行い、結果は共有された `.credentials.json` に**平文**で残る。ホストの Keychain は渡さない | 同じくコンテナ内で認証し、結果は volume に残る。ホストには一切戻らない |
+| What it can do | Claude Code in the container runs with the same settings, history, and plugins as the host, and **can rewrite them**. Only `~/.claude.json` is a container-local copy | Runs with Claude Code's default settings. Sees nothing of the host's and can change nothing |
+| Reach | `~/.claude` is **shared rw** with the host. `~/.claude.json` is passed ro and copied by postCreate | Does not reach the host's `~/.claude` / `~/.claude.json`. `~/.claude` is a volume shared across all workspaces |
+| How the key is passed | Authentication for Claude Code itself and MCP is done inside the container, and the result stays in the shared `.credentials.json` in **plaintext**. The host's Keychain is not passed | Likewise authenticated inside the container; the result stays in the volume. Nothing flows back to the host |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナが乗っ取られた場合:
+If the agent container is taken over:
 
-- **モジュール有効**: `~/.claude` 配下はすべて読み書きできる。**この設定で最も大きな穴**で、次が起きうる:
-  - `settings.json` を書き換えて permissions を緩める、hooks を仕込む（ホストの Claude Code にも効く）
-  - `.credentials.json` の token（コンテナで取得したもの）を持ち出す
-  - セッション履歴（会話内容）を読む
-- **モジュール無効**: 持ち出せるのは volume 内の token（コンテナで取得したもの）とコンテナ側の履歴だけ。ホストには何も無い
-- どちらでも、ホストの Keychain（ホストの Claude Code の token）には到達できない
+- **Module enabled**: everything under `~/.claude` can be read and written. **This is the biggest hole in this setup**, and the following can happen:
+  - Rewrite `settings.json` to loosen permissions or plant hooks (affects the host's Claude Code too)
+  - Exfiltrate the tokens in `.credentials.json` (those obtained in the container)
+  - Read session history (conversation contents)
+- **Module disabled**: only the tokens in the volume (those obtained in the container) and the container-side history can be exfiltrated. Nothing of the host's is there
+- In either case, the host's Keychain (the host Claude Code's token) is unreachable
 
-## なぜこの構成か
+## Why this design
 
-- **既定は共有しない側に倒し、共有はモジュールで選ぶ**: 他の秘密情報と同じく「明示しない限り渡さない」に揃える。共有するかどうかは「ホストの Claude Code の権限をコンテナから変えられてよいか」の判断で、ワークスペースごとに変えられる
-- **共有するときは rw**: 認証情報を `dcc recreate` やワークスペースをまたいで使い回すため（Keychain を渡さないので、コンテナ内で 1 回 `/login` すれば以後は共有された `.credentials.json` に残る）。設定・プラグイン・skills をホストと同じものにし、コンテナ側のセッション履歴もホストの `~/.claude` に残すため（ただし履歴のキーはパスなので、ホストとコンテナで `--resume` の一覧は別になる。下記「制約」）。Claude Code は起動時に `~/.claude` 配下へ頻繁に書くため ro では動かない
-- **共有しないときは空の固定名 volume**: 設定を部分的に持ち込む仕組みは作らない。ホストの `~/.claude` を ro で bind すれば履歴と token も読めてしまうし、export して流し込むと `settings.json` の `env` に書いた秘密がコンテナに入る。何も持ち込まなければ境界が単純で、コンテナ側で必要な設定はコンテナ内で作ればよい
-- **volume は固定名の external**: コンテナローカルだと `dcc recreate` で token が消えて毎回ログインになる。compose の volume はプロジェクト名でプレフィックスされるのでワークスペースごとにログインが要る。固定名（`dcc-claude-home`）の external volume にすると全ワークスペースで 1 回のログインで済み、`dcc clear --volumes` でも消えない
-- **token だけ切り出さない**: `.credentials.json` を single-file bind すると EXDEV 問題を踏み、コピーだと refresh token の回転でホスト側が無効になる。認証はコンテナ側で独立に持つ
-- **`~/.claude.json` は single-file bind しない**: Claude Code はこのファイルを atomic write（一時ファイルに書いて `rename`）する。single-file bind はマウントポイントなので `rename` が cross-device（EXDEV）で失敗し、設定が壊れる。ro で `.host` として渡し、postCreate がコピーする
-- **Keychain を渡さない**: コンテナは Linux で Keychain が無く、Claude Code にも export する手段が無い。ホストとコンテナで token を別系統にする方が境界として素直で、コンテナ側は独立に失効できる（[mcp.md](mcp.md)）
-- **ワークスペースは trust 済みにする**: trust の承認は `~/.claude.json`（コンテナローカル）に記録されるため、`dcc recreate` のたびに消えて確認が出直す。ワークスペースはコンテナに入れた時点で開くと決めたものとみなし、postCreate が `projects["/workspaces/<basename>"].hasTrustDialogAccepted` を立てる
-- **ホストの絶対パスを symlink で解決する**: `plugins/installed_plugins.json` 等にはインストール時のホストの絶対パス（`/Users/<user>/...`）が書かれており、コンテナの `$HOME` では解決できない。postCreate が `HOST_HOME → $HOME` の symlink を作る。副作用はコンテナ内に `/Users/<user>` が現れることだけ
+- **Default to not sharing; sharing is chosen via the module**: consistent with other secrets, "not passed unless explicitly requested". Whether to share is a judgment of "is it acceptable for the container to change the host Claude Code's permissions", and it can differ per workspace
+- **rw when shared**: to reuse credentials across `dcc recreate` and workspaces (the Keychain is not passed, so one `/login` inside the container persists in the shared `.credentials.json`). To keep settings, plugins, and skills the same as the host, and to keep the container-side session history in the host's `~/.claude` (though history is keyed by path, so the `--resume` lists differ between host and container; see "Constraints and known holes" below). Claude Code writes frequently under `~/.claude` at startup, so it does not work ro
+- **Empty fixed-name volume when not shared**: no mechanism is built to bring settings in partially. Binding the host's `~/.claude` ro would also expose history and tokens, and exporting and injecting would bring secrets written in `env` of `settings.json` into the container. Bringing nothing in keeps the boundary simple; any settings the container needs can be created inside the container
+- **The volume is a fixed-name external one**: if container-local, `dcc recreate` would erase the token and require logging in each time. compose volumes are prefixed with the project name, so a login would be needed per workspace. A fixed-name (`dcc-claude-home`) external volume means one login covers all workspaces, and `dcc clear --volumes` does not delete it
+- **Do not carve out just the token**: single-file binding `.credentials.json` runs into the EXDEV problem, and copying it invalidates the host side when the refresh token rotates. The container holds its authentication independently
+- **Do not single-file bind `~/.claude.json`**: Claude Code writes this file atomically (writes a temp file, then `rename`). A single-file bind is a mount point, so `rename` fails as cross-device (EXDEV) and the settings break. It is passed ro as `.host` and copied by postCreate
+- **Do not pass the Keychain**: the container is Linux and has no Keychain, and Claude Code has no means to export from it. Keeping separate token lineages for host and container is the cleaner boundary, and the container side can be revoked independently ([mcp.md](mcp.md))
+- **Mark the workspace as trusted**: trust approval is recorded in `~/.claude.json` (container-local), so it is lost on every `dcc recreate` and the prompt reappears. A workspace placed into the container is regarded as one the user has decided to open, and postCreate sets `projects["/workspaces/<basename>"].hasTrustDialogAccepted`
+- **Resolve host absolute paths via a symlink**: `plugins/installed_plugins.json` etc. contain the host's absolute paths at install time (`/Users/<user>/...`), which cannot be resolved under the container's `$HOME`. postCreate creates a `HOST_HOME → $HOME` symlink. The only side effect is that `/Users/<user>` appears in the container
 
-## 仕組み
+## How it works
 
-### モジュール有効（`capabilities/claude/compose.yml`）
+### Module enabled (`capabilities/claude/compose.yml`)
 
-| ホスト側 | コンテナ側 | モード | 内容 |
+| Host side | Container side | Mode | Contents |
 |---|---|---|---|
-| `~/.claude/`（`DCC_CLAUDE_DIR`） | `/home/agent/.claude/` | **rw** | セッション履歴、設定、プラグイン、skills、認証情報 |
-| `~/.claude.json`（`DCC_CLAUDE_JSON`） | `/home/agent/.claude.json.host` | ro | postCreate が `~/.claude.json` へコピー |
+| `~/.claude/` (`DCC_CLAUDE_DIR`) | `/home/agent/.claude/` | **rw** | Session history, settings, plugins, skills, credentials |
+| `~/.claude.json` (`DCC_CLAUDE_JSON`) | `/home/agent/.claude.json.host` | ro | Copied to `~/.claude.json` by postCreate |
 
-base の volume と同じ target `/home/agent/.claude` を bind で上書きする（compose の同一 target は後勝ち）。
+A bind overrides the base volume at the same target `/home/agent/.claude` (for the same target, the later compose file wins).
 
-`~/.claude.json` はコンテナローカルで、作成時点のホストの状態（onboarding 完了、MCP サーバー設定、theme）を引き継ぐ。ホスト側を後から更新しても既存コンテナには反映されない（`dcc recreate`）。コンテナ内で追加した MCP サーバー（user / local スコープ）はホストに戻らない（[mcp.md](mcp.md)）。
+`~/.claude.json` is container-local and inherits the host's state at creation time (onboarding completed, MCP server settings, theme). Later updates on the host are not reflected in an existing container (`dcc recreate`). MCP servers added inside the container (user / local scope) do not flow back to the host ([mcp.md](mcp.md)).
 
-### モジュール無効（base）
+### Module disabled (base)
 
-| ホスト側 | コンテナ側 | モード | 内容 |
+| Host side | Container side | Mode | Contents |
 |---|---|---|---|
-| volume `dcc-claude-home`（`DCC_CLAUDE_HOME_VOLUME`。external、全ワークスペース共有） | `/home/agent/.claude/` | rw | 空で始まる。認証情報と履歴はここに残る |
+| volume `dcc-claude-home` (`DCC_CLAUDE_HOME_VOLUME`; external, shared across all workspaces) | `/home/agent/.claude/` | rw | Starts empty. Credentials and history stay here |
 
-`dcc up` が volume を無ければ作る（external なので compose は作らない。devcontainer からは `docker volume create dcc-claude-home`）。所有者はイメージの `~/.claude`（コンテナユーザー所有）を初回 mount で引き継ぎ、postCreate はそれを確認して `chmod 700` するだけ。`~/.claude.json` も Claude Code が初回に作る（onboarding が出る）。
+`dcc up` creates the volume if missing (it is external, so compose does not create it; from devcontainer, `docker volume create dcc-claude-home`). Ownership is inherited from the image's `~/.claude` (owned by the container user) on first mount, and postCreate only checks it and runs `chmod 700`. `~/.claude.json` is also created by Claude Code on first run (onboarding appears).
 
-### `claude` 本体のインストール場所
+### Where the `claude` binary is installed
 
-Dockerfile で `install.sh` を sha256 照合してからコンテナユーザーとして実行し（版は `CLAUDE_CODE_VERSION`。[architecture.md](architecture.md)）、`~/.local/bin/claude` に置く。Claude Code の自動更新・`claude doctor` はこの場所を「管理インストール」として扱うため、root で `/usr/local/bin` に置くと "missing or broken" 警告が出る。
+The Dockerfile verifies `install.sh` against sha256 and then runs it as the container user (version is `CLAUDE_CODE_VERSION`; [architecture.md](architecture.md)), placing it at `~/.local/bin/claude`. Claude Code's auto-update and `claude doctor` treat this location as a "managed install", so placing it in `/usr/local/bin` as root produces a "missing or broken" warning.
 
-実体（`~/.local/share/claude/versions/<ver>`）と `~/.local/bin/claude` の symlink はどちらもイメージの焼き込み版が正で、volume にはしない。自動更新と postCreate の `claude update` の結果はコンテナ層に残り、`dcc recreate` で焼き込み版に戻る（そのとき postCreate がまた最新化する。差分は 1 回分のダウンロードだけ）。実体だけを named volume に置く構成は採らない。volume は初回しかシードされないため、イメージを rebuild して同梱版が上がると volume 外の symlink の指し先が volume に無くなり、`claude` が実行できなくなる（`executable file not found in $PATH`）。同じものをイメージと volume の 2 か所に持たないことでこの食い違いを無くしている。
+Both the binary (`~/.local/share/claude/versions/<ver>`) and the `~/.local/bin/claude` symlink are authoritative as baked into the image, and are not volumes. The results of auto-update and postCreate's `claude update` remain in the container layer, and `dcc recreate` reverts to the baked-in version (postCreate then updates it again; the difference is just one download). Putting only the binary in a named volume is not adopted. A volume is seeded only the first time, so when the image is rebuilt with a newer bundled version, the symlink outside the volume points to something not in the volume, and `claude` can no longer run (`executable file not found in $PATH`). Not keeping the same thing in two places, image and volume, eliminates this mismatch.
 
-### 個人ツール向けの環境変数
+### Environment variables for personal tools
 
-`dcc` は claude の起動時に固有の環境変数を足さない。コンテナ内に渡すなら `DCC_CONTAINER_ENV_<NAME>=value`、ホスト側の `dcc` プロセスに付けるなら `.env` に素の `NAME=value` を書く（[customization.md](customization.md)）。
+`dcc` does not add its own environment variables when launching claude. To pass one into the container, use `DCC_CONTAINER_ENV_<NAME>=value`; to set one on the host-side `dcc` process, write a bare `NAME=value` in `.env` ([customization.md](customization.md)).
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- **モジュール有効時は、ホストの Claude Code の認証・設定・履歴にコンテナ内の Claude Code が書き込める。** permissions を緩める、hooks を仕込む、といった改変は防げない。防ぎたいワークスペースでは無効にする
-- モジュール無効時は個人のスキル・プラグイン・`settings.json` が無く、初回は onboarding と `/login` が要る（volume ごとに 1 回）。ホストの履歴は `--resume` に出ない。コンテナ用の設定を持ちたければ `local/compose.yml` で必要なファイルだけ bind する
-- `projects/` のキーはワークスペースの絶対パス。ホストでは `/Users/<user>/src/foo`、コンテナでは `/workspaces/foo` になるため、共有していても同じワークスペースの履歴は別のキーに保存される（`--resume` で互いのセッションは一覧に出ない）
-- `settings.json` 内のパス（hooks のコマンドパスなど）がホスト固有だとコンテナで動かない
-- 同時にホストとコンテナで Claude Code を動かすと、共有時は `settings.json` 等の書き込みが競合しうる
-- ワークスペースは常に trust 済みで起動するため、リポジトリの `.claude/settings.json`（hooks、permissions）や `.mcp.json` は確認なしで有効になる。知らないリポジトリを開くときは、先にホストで中身を確認する。モジュール有効時は、それらの hooks がホストと共有している `~/.claude` に書き込める
-- `~/.claude.json` にも認証情報（旧形式の `oauthAccount` 等）が含まれることがある。共有時は ro とはいえコンテナに渡っている
+- **When the module is enabled, Claude Code in the container can write to the host Claude Code's authentication, settings, and history.** Modifications such as loosening permissions or planting hooks cannot be prevented. Disable it for workspaces where you want to prevent that
+- When the module is disabled there are no personal skills, plugins, or `settings.json`, and onboarding and `/login` are needed the first time (once per volume). The host's history does not appear in `--resume`. To have container-specific settings, bind only the needed files with `local/compose.yml`
+- Keys in `projects/` are the workspace's absolute path. On the host it is `/Users/<user>/src/foo`, in the container `/workspaces/foo`, so even when shared, history for the same workspace is stored under different keys (sessions from the other side do not appear in `--resume`)
+- If paths in `settings.json` (hook command paths, etc.) are host-specific, they do not work in the container
+- Running Claude Code on the host and in the container at the same time may cause write conflicts on `settings.json` etc. when shared
+- The workspace always starts as trusted, so the repository's `.claude/settings.json` (hooks, permissions) and `.mcp.json` take effect without confirmation. When opening an unfamiliar repository, review its contents on the host first. When the module is enabled, those hooks can write to the `~/.claude` shared with the host
+- `~/.claude.json` may also contain credentials (old-format `oauthAccount`, etc.). When shared, it is passed to the container, albeit ro

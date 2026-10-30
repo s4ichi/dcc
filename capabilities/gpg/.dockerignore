@@ -1,3 +1,3 @@
-# build context に不要なもの (gnupg-host は compose が別途 ro mount する)
+# Not needed in the build context (compose mounts gnupg-host ro separately)
 gnupg-host
 compose.yml

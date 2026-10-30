@@ -1,18 +1,18 @@
-"""GPG 署名 sidecar (docs/gpg.md).
+"""GPG signing sidecar (docs/gpg.md).
 
-POST /sign で git の commit / tag オブジェクトを受け取り、armor 形式の detached 署名と
-gpg の --status-fd 出力を JSON で返す。本体の gpg.program wrapper (gpg-sign-client.sh) が呼ぶ。
+POST /sign takes a git commit / tag object and returns an armored detached signature and
+gpg's --status-fd output as JSON. Called by the agent container's gpg.program wrapper (gpg-sign-client.sh).
 
-- 署名鍵は DCC_GPG_SIGNING_KEY (entrypoint.sh が signing-key.txt から設定) で固定。
-  クライアントは鍵を選べない
-- payload は git オブジェクト (先頭行が "tree <sha>" または "object <sha>") しか受け付けない
-- --pinentry-mode error により、パスフレーズが未キャッシュなら hang せず即失敗する
-  (ホストの capabilities/gpg/warm.sh で warm する)
+- The signing key is fixed by DCC_GPG_SIGNING_KEY (set by entrypoint.sh from signing-key.txt).
+  Clients cannot choose the key
+- Only git objects (first line "tree <sha>" or "object <sha>") are accepted as payload
+- With --pinentry-mode error, an uncached passphrase fails immediately instead of hanging
+  (warm it with capabilities/gpg/warm.sh on the host)
 
-環境変数:
-  DCC_GPG_SIGNING_KEY  署名鍵の fingerprint
-  BIND_ADDR            listen アドレス (デフォルト: 127.0.0.1)
-  BIND_PORT            listen ポート (デフォルト: 8081)
+Environment variables:
+  DCC_GPG_SIGNING_KEY  fingerprint of the signing key
+  BIND_ADDR            listen address (default: 127.0.0.1)
+  BIND_PORT            listen port (default: 8081)
 """
 
 import json
@@ -27,14 +27,14 @@ SIGNING_KEY = os.environ.get("DCC_GPG_SIGNING_KEY", "")
 BIND_ADDR = os.environ.get("BIND_ADDR", "127.0.0.1")
 BIND_PORT = int(os.environ.get("BIND_PORT", "8081"))
 TIMEOUT_SEC = 30
-MAX_PAYLOAD = 1 << 20  # git のコミット / タグオブジェクトとしては十分過ぎる上限
+MAX_PAYLOAD = 1 << 20  # more than enough for a git commit / tag object
 
-# commit は "tree <sha>"、tag は "object <sha>" で始まる (sha256 リポジトリは 64 桁)
+# A commit starts with "tree <sha>", a tag with "object <sha>" (64 hex digits in sha256 repositories)
 GIT_OBJECT_RE = re.compile(rb"\A(tree|object) [0-9a-f]{40,64}\n")
 
 
 def sign(payload):
-    """payload に detached 署名する。(signature, status, error) を返す。"""
+    """Make a detached signature of payload. Returns (signature, status, error)."""
     if not SIGNING_KEY:
         return None, "", "no signing key configured (set git user.signingkey on the host and recreate)"
     cmd = [
@@ -89,12 +89,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def log_message(self, fmt, *args):
-        # payload や署名はログに出さない。method / path / status のみ。
+        # Do not log the payload or signature. Only method / path / status.
         sys.stderr.write(f"{self.command} {self.path.split('?')[0]} {args[1] if len(args) > 1 else ''}\n")
 
 
 def main():
-    # PID 1 はハンドラが無いと SIGTERM を無視し、docker stop が猶予期間 (10 秒) 待つことになる
+    # Without a handler, PID 1 ignores SIGTERM and docker stop waits for the grace period (10 seconds)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     server = ThreadingHTTPServer((BIND_ADDR, BIND_PORT), Handler)
     sys.stderr.write(f"gpg-signer: listening on {BIND_ADDR}:{BIND_PORT} (key: {SIGNING_KEY or '(none)'})\n")

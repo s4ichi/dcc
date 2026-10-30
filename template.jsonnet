@@ -1,49 +1,49 @@
-// 設定の単一ソース。`make generate` で次を生成する:
-//   docker-compose.yml               base (agent = 本体 + docker sidecar)
-//   docker-compose.workspace.yml     dcc 用のワークスペース bind
-//   docker-compose.base-image.yml    local/Dockerfile 使用時に base イメージを build する上書き
-//   capabilities/<name>/compose.yml  credential モジュールごとの overlay
+// Single source of the configuration. `make generate` produces:
+//   docker-compose.yml               base (agent = agent container + docker sidecar)
+//   docker-compose.workspace.yml     workspace bind for dcc
+//   docker-compose.base-image.yml    override that builds the base image when local/Dockerfile is used
+//   capabilities/<name>/compose.yml  overlay per credential module
 //
-// 生成物はコミットする (ホストに jsonnet が無くても使え、何がマウントされるかをレビューできる)。
-// 変更したら `make fmt && make generate`。
+// Generated files are committed (usable without jsonnet on the host, and what gets mounted can be reviewed).
+// After changing this file, run `make fmt && make generate`.
 //
-// ${VAR} は docker compose が補間する。${DCC_*} は利用者ごとの設定で、すべて既定値付き
-// (.env.example)。リポジトリ内のパスは ${DCC_CONFIG_DIR} 基準の絶対パスで書き、compose の
-// project directory に依存させない (devcontainer CLI から別の -f の並びで渡されても同じ場所を指す)。
-// 構成の説明は docs/architecture.md、境界の考え方は docs/boundaries.md。
+// ${VAR} is interpolated by docker compose. ${DCC_*} are per-user settings, all with defaults
+// (.env.example). Paths in the repo are written as absolute paths based on ${DCC_CONFIG_DIR}, so they do not
+// depend on the compose project directory (they point to the same place even when the devcontainer CLI passes a different -f order).
+// The structure is described in docs/architecture.md, the boundary model in docs/boundaries.md.
 
 local home = '${HOME}';
 local configDir = '${DCC_CONFIG_DIR:-${HOME}/.config/dcc}';
 
-// コンテナ内ユーザー。Dockerfile の build arg と一致させる
+// User inside the container. Must match the build arg in the Dockerfile
 local remoteUser = '${DCC_USER:-agent}';
 local remoteUid = '${DCC_UID:-1000}';
 local remoteGid = '${DCC_GID:-${DCC_UID:-1000}}';
 local remoteHome = '/home/' + remoteUser;
 
-// dcc が export する。workspace overlay だけが使い、dcc を通さずに使うと :? で失敗する
+// Exported by dcc. Only the workspace overlay uses it; using it without dcc fails with :?
 local workspaceSource = '${LOCAL_WORKSPACE_FOLDER:?run via dcc}';
 local workspaceTarget = '/workspaces/${LOCAL_WORKSPACE_BASENAME:?run via dcc}';
 
-// claude モジュール (ホストの ~/.claude を rw 共有) を外したときは、空の固定名 volume を
-// 全ワークスペースで共有する (認証と履歴はコンテナ側に閉じる)
+// When the claude module (rw sharing of the host's ~/.claude) is not selected, an empty fixed-name volume is
+// shared across all workspaces (auth and history stay inside the containers)
 local claudeDir = '${DCC_CLAUDE_DIR:-${HOME}/.claude}';
 local claudeJson = '${DCC_CLAUDE_JSON:-${HOME}/.claude.json}';
 local claudeHomeVolume = '${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}';
-// codex モジュールも同じ形 (~/.codex)。config.toml は rename で書かれるので、必ずディレクトリ単位で渡す
+// The codex module has the same shape (~/.codex). config.toml is written via rename, so always pass the whole directory
 local codexDir = '${DCC_CODEX_DIR:-${HOME}/.codex}';
 local codexHomeVolume = '${DCC_CODEX_HOME_VOLUME:-dcc-codex-home}';
 local gitconfig = '${DCC_GITCONFIG:-${HOME}/.gitconfig}';
 
-// 本体イメージ。local/Dockerfile があるときは base (このリポジトリの Dockerfile) → final の 2 段で、
-// dcc が DCC_BUILD_CONTEXT / DCC_DOCKERFILE を export して final の build 元を差し替える
+// Agent image. When local/Dockerfile exists it is built in 2 stages, base (this repo's Dockerfile) -> final, and
+// dcc exports DCC_BUILD_CONTEXT / DCC_DOCKERFILE to swap the build source of final
 local agentImage = '${DCC_IMAGE:-dcc:local}';
 local baseImage = '${DCC_BASE_IMAGE:-dcc:base}';
 local buildContext = '${DCC_BUILD_CONTEXT:-' + configDir + '}';
 local dockerfile = '${DCC_DOCKERFILE:-Dockerfile}';
-// 唯一の privileged コンテナなので digest で固定する (タグは可読性のためで、pull は digest で決まる)。
-// 上げるときは `docker buildx imagetools inspect docker:<ver>-dind-rootless` の index digest に書き換え、
-// .env.example と docs/customization.md の既定値も揃える。docs/docker.md
+// The only privileged container, so pin it by digest (the tag is for readability; pull is decided by the digest).
+// To bump it, rewrite it to the index digest from `docker buildx imagetools inspect docker:<ver>-dind-rootless`,
+// and update the default in .env.example and docs/customization.md too. docs/docker.md
 local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.2-dind-rootless@sha256:ae083cc7de51e7a8e5a597f8fb774ca7914c408a95fc0f1477826a913479518a}';
 local goVersion = '${DCC_GO_VERSION:-1.26.3}';
 
@@ -55,13 +55,13 @@ local buildArgs = {
   GO_VERSION: goVersion,
 };
 
-// Docker sidecar。サービス名 'docker' は TLS 証明書の SAN に含まれるため固定
+// Docker sidecar. The service name 'docker' is fixed because it is included in the SAN of the TLS certificate
 local certsDir = '/certs';
 local sharedNetns = 'service:docker';
 local dindDataDir = '/home/rootless/.local/share/docker';
 
-// compose の long syntax (type / source / target / read_only) を返す。
-// multi-file の volumes は target をキーに追記マージされ、同一 target は後勝ち
+// Returns the compose long syntax (type / source / target / read_only).
+// Multi-file volumes are merged by appending with target as the key; for the same target the last one wins
 local bind(source, target, readonly=false) = {
   type: 'bind',
   source: source,
@@ -76,14 +76,14 @@ local volume(source, target, readonly=false) = {
   [if readonly then 'read_only']: true,
 };
 
-// lifecycle_hooks/ の bind 先。postCreate はここから実行する (dcc の REMOTE_HOOKS_DIR と同じ値)
+// Bind target of lifecycle_hooks/. postCreate runs from here (same value as REMOTE_HOOKS_DIR in dcc)
 local hooksDir = '/usr/local/lib/dcc/hooks';
 
-// 本体と sidecar に同一パスで bind する。`docker run -v /workspaces/...` を解決するのは sidecar の dockerd
+// Bound at the same path into the agent container and the sidecar. The sidecar's dockerd resolves `docker run -v /workspaces/...`
 local workspaceMount = bind(workspaceSource, workspaceTarget) { consistency: 'cached' };
 
-// モジュール sidecar は共有 netns の 127.0.0.1 で listen する (SDK の credential provider は
-// loopback しか許可しない)。ポートは inner container の -p と衝突しうるので変更可
+// Module sidecars listen on 127.0.0.1 in the shared netns (the SDK credential providers only allow
+// loopback). The port can collide with -p of inner containers, so it is configurable
 local awsCredentialsPort = '${DCC_AWS_CREDENTIALS_PORT:-8080}';
 local awsDir = '${DCC_AWS_DIR:-${HOME}/.aws}';
 local awsRegion = '${DCC_AWS_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}}';
@@ -97,17 +97,17 @@ local gpgSignClient = '/usr/local/lib/dcc/gpg-sign-client.sh';
 local sshDir = '${DCC_SSH_DIR:-' + configDir + '/capabilities/ssh/data}';
 local sshConfig = '${DCC_SSH_CONFIG:-' + configDir + '/capabilities/ssh/config}';
 local sshKnownHosts = '${DCC_SSH_KNOWN_HOSTS:-' + configDir + '/capabilities/ssh/known_hosts}';
-// gh の状態 (refresh token) は全ワークスペースの gh-token sidecar で共有する固定名の外部 volume に置く
-// (refresh.lock の flock を確実に効かせるため。dcc が作る)。本体には access token だけを渡す
+// gh state (refresh token) lives in a fixed-name external volume shared by the gh-token sidecars of all workspaces
+// (so the flock on refresh.lock reliably takes effect; dcc creates it). The agent container only gets access tokens
 local ghTokenPort = '${DCC_GH_TOKEN_PORT:-8082}';
 local ghHost = '${DCC_GH_HOST:-github.com}';
 local ghHomeVolume = '${DCC_GH_HOME_VOLUME:-dcc-gh-home}';
 local ghClient = '/usr/local/lib/dcc/gh-token-client.sh';
 
-// credential モジュール。`dcc --creds <name>,...` で選んだものだけ overlay として渡る。
-// キーが capabilities/<name>/ のディレクトリ名になる。docs/credentials.md
+// Credential modules. Only those selected with `dcc --creds <name>,...` are passed as overlays.
+// The key becomes the directory name capabilities/<name>/. docs/credentials.md
 local credModules = {
-  // ~/.aws は本体に渡さない。sidecar が login セッションから一時 credential を発行する。docs/aws.md
+  // ~/.aws is not passed to the agent container. The sidecar issues temporary credentials from the login session. docs/aws.md
   aws: {
     services: {
       agent: {
@@ -116,7 +116,7 @@ local credModules = {
           AWS_REGION: awsRegion,
         },
         depends_on: { 'aws-credentials': { condition: 'service_started' } },
-        // dcc の drift 検出用
+        // For drift detection in dcc
         labels: { 'dcc.aws-profile': awsProfile },
       },
       'aws-credentials': {
@@ -136,23 +136,23 @@ local credModules = {
     },
   },
 
-  // ホストの ~/.claude (設定・履歴・認証情報) を rw で共有する。docs/claude-code.md
-  // 外すと base の volume (claude-home) が使われ、認証はコンテナ側で独立に持つ
+  // Share the host's ~/.claude (settings, history, credentials) rw. docs/claude-code.md
+  // Without it the base volume (claude-home) is used, and auth is held independently on the container side
   claude: {
     services: {
       agent: {
         volumes: [
           bind(claudeDir, remoteHome + '/.claude'),
-          // single-file bind だと Claude Code の atomic write (rename) が EXDEV で失敗するため、
-          // ro で渡して postCreate がコンテナローカルへコピーする
+          // A single-file bind makes Claude Code's atomic write (rename) fail with EXDEV, so
+          // pass it ro and postCreate copies it to a container-local file
           bind(claudeJson, remoteHome + '/.claude.json.host', readonly=true),
         ],
       },
     },
   },
 
-  // ホストの ~/.codex (設定・履歴・認証情報 auth.json) を rw で共有する。docs/codex.md
-  // 外すと base の volume (codex-home) が使われ、認証はコンテナ側で独立に持つ
+  // Share the host's ~/.codex (settings, history, credentials in auth.json) rw. docs/codex.md
+  // Without it the base volume (codex-home) is used, and auth is held independently on the container side
   codex: {
     services: {
       agent: {
@@ -163,14 +163,14 @@ local credModules = {
     },
   },
 
-  // 署名は gpg-signer sidecar に委譲する。秘密鍵とパスフレーズは sidecar にだけ存在し、
-  // 本体は gpg.program の wrapper 経由で署名 API を呼ぶ。docs/gpg.md
+  // Signing is delegated to the gpg-signer sidecar. The private key and passphrase exist only in the sidecar, and
+  // the agent container calls the signing API through the gpg.program wrapper. docs/gpg.md
   gpg: {
     services: {
       agent: {
         environment: {
           DCC_GPG_SIGN_URI: 'http://127.0.0.1:' + gpgSignerPort + '/sign',
-          // git config の最優先レイヤで wrapper に固定する (ホストの ~/.gitconfig の gpg.program より優先)
+          // Pin to the wrapper in the highest-priority git config layer (overrides gpg.program in the host's ~/.gitconfig)
           GIT_CONFIG_COUNT: '1',
           GIT_CONFIG_KEY_0: 'gpg.program',
           GIT_CONFIG_VALUE_0: gpgSignClient,
@@ -194,7 +194,7 @@ local credModules = {
     },
   },
 
-  // GitHub 接続用。接続設定とホスト鍵は /etc/ssh に、コンテナ専用の秘密鍵は ~/.ssh に ro で渡す。docs/ssh.md
+  // For connecting to GitHub. Connection settings and host keys go ro to /etc/ssh, the container-only private key ro to ~/.ssh. docs/ssh.md
   ssh: {
     services: {
       agent: {
@@ -207,8 +207,8 @@ local credModules = {
     },
   },
 
-  // refresh token は gh-token sidecar にだけ存在し、本体は gh の wrapper と git の credential helper
-  // 経由で短命の access token を毎回受け取る。docs/github.md
+  // The refresh token exists only in the gh-token sidecar; the agent container receives a short-lived access token
+  // every time through the gh wrapper and the git credential helper. docs/github.md
   gh: {
     services: {
       agent: {
@@ -219,7 +219,7 @@ local credModules = {
         depends_on: { 'gh-token': { condition: 'service_started' } },
         volumes: [
           bind(configDir + '/capabilities/gh/gh-token-client.sh', ghClient, readonly=true),
-          // PATH 上で /usr/bin/gh より先に見つかる位置に wrapper として置く
+          // Placed as a wrapper where it is found on PATH before /usr/bin/gh
           bind(configDir + '/capabilities/gh/gh-token-client.sh', '/usr/local/bin/gh', readonly=true),
         ],
       },
@@ -251,14 +251,14 @@ local compose = {
         dockerfile: dockerfile,
         args: buildArgs,
       },
-      // PID 1 の sleep は SIGTERM を無視して stop が grace period (10s) まで待つため、init (tini) を挟む
+      // sleep as PID 1 ignores SIGTERM and stop waits for the grace period (10s), so put an init (tini) in front
       command: ['sleep', 'infinity'],
       init: true,
-      // sidecar と netns を共有する (ports / hostname / dns / extra_hosts はここに書けない)
+      // Share the netns with the sidecar (ports / hostname / dns / extra_hosts cannot be set here)
       network_mode: sharedNetns,
-      // エージェントのプロセスから root へ上がる経路を断つ (setuid / file capability を無効化し、root で
-      // 動くものにも capability を与えない)。root が要る postCreate の処理は dcc が exec --user root で
-      // 呼ぶ (postCreate-root.sh)。docs/boundaries.md
+      // Cut off paths from the agent's processes up to root (disable setuid / file capabilities, and give no
+      // capabilities even to things running as root). postCreate steps that need root are called by dcc with exec --user root
+      // (postCreate-root.sh). docs/boundaries.md
       security_opt: ['no-new-privileges:true'],
       cap_drop: ['ALL'],
       depends_on: { docker: { condition: 'service_started' } },
@@ -270,34 +270,34 @@ local compose = {
         HOST_HOME: home,
         DCC_CREDS: '${DCC_CREDS-}',
       },
-      // 利用者の環境変数。dcc が DCC_CONTAINER_ENV_<NAME>=value を集めて一時ファイルに書き、
-      // そのパスを DCC_CONTAINER_ENV_FILE で渡す (無ければ空)
+      // The user's environment variables. dcc collects DCC_CONTAINER_ENV_<NAME>=value into a temp file and
+      // passes its path in DCC_CONTAINER_ENV_FILE (empty if none)
       env_file: [{ path: '${DCC_CONTAINER_ENV_FILE:-/dev/null}', required: false }],
-      // dcc の drift 検出用
+      // For drift detection in dcc
       labels: {
         'dcc.credentials': '${DCC_CREDS-}',
       },
       volumes: [
-        // include 先の個人ファイルは bind しない (git は存在しない include を無視する)
+        // Personal files referenced by include are not bound (git ignores includes that do not exist)
         bind(gitconfig, remoteHome + '/.gitconfig', readonly=true),
-        // claude モジュールが同じ target をホストの ~/.claude の bind で上書きする
+        // The claude module overrides the same target with a bind of the host's ~/.claude
         volume('claude-home', remoteHome + '/.claude'),
-        // 同じく codex モジュールがホストの ~/.codex の bind で上書きする
+        // Likewise the codex module overrides it with a bind of the host's ~/.codex
         volume('codex-home', remoteHome + '/.codex'),
-        // Claude Code の実体 (~/.local/share/claude) は volume にしない。イメージの焼き込み版が正で、
-        // 自動更新はコンテナ層に残り recreate で焼き込み版に戻る (postCreate が最新化する)。
-        // volume にすると ~/.local/bin/claude の symlink (volume 外) と食い違い、rebuild 後に壊れる
+        // The Claude Code binary (~/.local/share/claude) is not a volume. The baked-in version in the image is authoritative;
+        // auto-updates stay in the container layer and recreate reverts to the baked-in version (postCreate updates it).
+        // As a volume it would diverge from the ~/.local/bin/claude symlink (outside the volume) and break after a rebuild
         volume('docker-certs', certsDir, readonly=true),
         bind(configDir + '/lifecycle_hooks', hooksDir, readonly=true),
       ],
     },
 
-    // 認証情報は一切マウントしない。privileged はこのサービスだけ
+    // No credentials are mounted at all. privileged is set only on this service
     docker: {
       image: dindImage,
       privileged: true,
       environment: { DOCKER_TLS_CERTDIR: certsDir },
-      // rootlesskit が 1024 未満のポートを公開できるように
+      // So rootlesskit can publish ports below 1024
       sysctls: { 'net.ipv4.ip_unprivileged_port_start': 0 },
       volumes: [
         volume('docker-certs', certsDir),
@@ -306,8 +306,8 @@ local compose = {
     },
   },
 
-  // プロジェクト名でプレフィックスされ、ワークスペースごとに独立する。
-  // claude-home / codex-home だけは固定名の外部 volume (dcc が作る。down --volumes でも消えない)
+  // Prefixed with the project name, so independent per workspace.
+  // Only claude-home / codex-home are fixed-name external volumes (created by dcc; not removed even by down --volumes)
   volumes: {
     'claude-home': { name: claudeHomeVolume, external: true },
     'codex-home': { name: codexHomeVolume, external: true },
@@ -316,7 +316,7 @@ local compose = {
   },
 };
 
-// devcontainer から使う場合はワークスペース側の compose で同じ bind を与える (docs/devcontainer.md)
+// When used from devcontainer, give the same bind in the workspace-side compose (docs/devcontainer.md)
 local workspaceOverlay = {
   services: {
     agent: {
@@ -329,8 +329,8 @@ local workspaceOverlay = {
   },
 };
 
-// local/Dockerfile があるとき、その FROM 先 (base) をこのリポジトリの Dockerfile から build するための上書き。
-// dcc build / dcc up が `build agent` のときだけ -f に足す
+// When local/Dockerfile exists, override to build its FROM target (base) from this repo's Dockerfile.
+// dcc build / dcc up add it to -f only when running `build agent`
 local baseImageOverlay = {
   services: {
     agent: {
@@ -343,7 +343,7 @@ local baseImageOverlay = {
   },
 };
 
-// 出力: ファイル名 → YAML 文字列。`jsonnet -S -m .` が各フィールドを同名のファイルに書き出す
+// Output: file name -> YAML string. `jsonnet -S -m .` writes each field to a file of the same name
 local yaml(obj) = std.manifestYamlDoc(obj, indent_array_in_object=true, quote_keys=false) + '\n';
 
 {

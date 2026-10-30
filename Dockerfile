@@ -1,19 +1,19 @@
 # syntax=docker/dockerfile:1
 #
-# 本体イメージ (compose の agent サービス)。Claude Code / Codex CLI と開発ツールを入れた非特権のコンテナで、
-# dockerd は含まない (Docker は rootless の sidecar が提供する。docs/docker.md)。
-# devcontainer features は使わず、すべてここに焼き込む。
+# Agent image (the agent service in compose). An unprivileged container with Claude Code / Codex CLI and dev tools;
+# it does not include dockerd (Docker is provided by the rootless sidecar. docs/docker.md).
+# devcontainer features are not used; everything is baked in here.
 #
-# build は compose 経由 (`dcc build`)。ARG は compose の build.args から渡る:
+# Built via compose (`dcc build`). ARGs come from build.args in compose:
 #   USERNAME / USER_UID / USER_GID  ← DCC_USER / DCC_UID / DCC_GID
 #   GO_VERSION                      ← DCC_GO_VERSION
-# ダウンロードするツールの版は各レイヤ直前の ARG で固定する (latest を取らず、同じ Dockerfile なら同じ版になる)。
-# 取得物は sha256 で照合する。配布元が checksum ファイルを公開しているもの (Go / yq / uv / Codex) はそれと照合し
-# (同一オリジンなので、検知できるのは破損と転送経路での差し替え)、無いもの (duckdb / AWS CLI / Volta / d2 /
-# Claude Code の install.sh) は ARG に sha256 を書いて照合する。版を上げるときは ARG の既定値と sha256 を書き換える。
-# apt で入れるもの (Docker CLI / gh / Corretto など) は apt の署名検証に任せ、版は固定しない。
-# 個人のツールはこのファイルを編集せず、`FROM dcc:base` する local/Dockerfile で足す
-# (docs/customization.md)。
+# Versions of downloaded tools are pinned by an ARG right before each layer (never latest; the same Dockerfile gives the same versions).
+# Downloads are checked with sha256. Where the distributor publishes a checksum file (Go / yq / uv / Codex) we check against it
+# (same origin, so this detects corruption and substitution in transit); where not (duckdb / AWS CLI / Volta / d2 /
+# Claude Code's install.sh) the sha256 is written in an ARG and checked. To bump a version, rewrite the ARG default and sha256.
+# Things installed via apt (Docker CLI / gh / Corretto, etc.) rely on apt's signature verification and are not version-pinned.
+# Add personal tools in a local/Dockerfile that does `FROM dcc:base` instead of editing this file
+# (docs/customization.md).
 
 FROM debian:bookworm-slim
 
@@ -32,12 +32,12 @@ ENV PATH=/home/${USERNAME}/.local/bin:/usr/local/go/bin:/go/bin:$PATH
 
 # Layer 1: APT lean config + base packages + container user
 #
-# recommends / suggests / doc / man / locale を入れずにイメージを小さく保つ。
-# sudo は入れない。コンテナ内で root が要る処理 (system gitconfig など) は lifecycle_hooks/postCreate-root.sh に
-# 置き、dcc が `compose exec --user root` で呼ぶ。compose 側で no-new-privileges と cap_drop ALL を付けるので、
-# エージェントのプロセスからは root に上がれない (docs/boundaries.md)。
-# ~/.claude と ~/.codex はここで作って所有者を付けておく。空の named volume は初回 mount でこのディレクトリの
-# 所有者とモードを引き継ぐので、postCreate で chown しなくてよい (root は CAP_CHOWN を持たない)。
+# Keep the image small by not installing recommends / suggests / doc / man / locale.
+# No sudo. Steps that need root in the container (system gitconfig, etc.) go in lifecycle_hooks/postCreate-root.sh
+# and dcc calls them with `compose exec --user root`. compose sets no-new-privileges and cap_drop ALL, so
+# the agent's processes cannot become root (docs/boundaries.md).
+# ~/.claude and ~/.codex are created and owned here. An empty named volume inherits this directory's owner and mode
+# on first mount, so postCreate does not need to chown (root has no CAP_CHOWN).
 RUN set -eux; \
     { \
       echo 'APT::Install-Recommends "false";'; \
@@ -102,8 +102,8 @@ RUN set -eux; \
 
 # Layer 2: Docker CLI (+ buildx / compose plugin)
 #
-# dockerd はこのイメージでは動かさない。compose の sidecar (docker:dind-rootless) が TLS 付き
-# tcp/2376 で提供し、本体は DOCKER_HOST / DOCKER_TLS_VERIFY / DOCKER_CERT_PATH 環境変数で繋ぐ。
+# dockerd does not run in this image. The compose sidecar (docker:dind-rootless) provides it with TLS on
+# tcp/2376, and the agent container connects via the DOCKER_HOST / DOCKER_TLS_VERIFY / DOCKER_CERT_PATH env vars.
 RUN set -eux; \
     curl -fsSL https://download.docker.com/linux/debian/gpg \
       | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg; \
@@ -150,14 +150,14 @@ RUN set -eux; \
 
 # Layer 5: Claude Code CLI (native install into the container user's home)
 #
-# コンテナのユーザーとして install.sh を実行し、~/.local/bin/claude (実体は ~/.local/share/claude) に置く。
-# Claude Code の自動更新と `claude doctor` はこの場所を管理インストールとして扱うため、root で
-# /usr/local/bin に置くと "~/.local/bin/claude missing or broken" の警告が出る。
-# ここで入る版が正で volume にはしない。postCreate の `claude update` がコンテナ層で最新化する
-# (docs/claude-code.md)。~/.local/bin は上の ENV PATH で通してある (非対話シェルでも解決できる)。
-# install.sh は `curl | bash` せず、sha256 を照合してから CLAUDE_CODE_VERSION を引数に実行する。
-# install.sh 自身はバイナリを配布元の manifest の checksum で検証する。sha256 は配布元が install.sh を更新すると
-# 変わるので、build が失敗したら `curl -fsSL https://claude.ai/install.sh | sha256sum` で取り直して差分を確認する。
+# Run install.sh as the container user and place it at ~/.local/bin/claude (the binary lives in ~/.local/share/claude).
+# Claude Code's auto-update and `claude doctor` treat this location as the managed install, so putting it in
+# /usr/local/bin as root produces the "~/.local/bin/claude missing or broken" warning.
+# The version installed here is authoritative and is not a volume. `claude update` in postCreate updates it in the container layer
+# (docs/claude-code.md). ~/.local/bin is on PATH via the ENV PATH above (resolvable from non-interactive shells too).
+# install.sh is not run via `curl | bash`; its sha256 is checked, then it runs with CLAUDE_CODE_VERSION as the argument.
+# install.sh itself verifies the binary against the checksum in the distributor's manifest. The sha256 changes when the
+# distributor updates install.sh, so if the build fails, re-fetch it with `curl -fsSL https://claude.ai/install.sh | sha256sum` and review the diff.
 ARG CLAUDE_CODE_VERSION=2.1.308
 ARG CLAUDE_INSTALL_SHA256=3a68d3406cf674e17bed1733a4dcf37805e2e47d87417700007d7e1aa766a944
 RUN set -eux; \
@@ -208,8 +208,8 @@ RUN set -eux; \
 
 # Layer 8: jsonnet / jsonnetfmt (go-jsonnet)
 #
-# このリポジトリ自身の `make generate / fmt / check` をコンテナ内で実行できるようにする。
-# go-jsonnet は Layer 4 の Go でソースからビルドする。ビルドキャッシュは破棄してイメージを肥大させない。
+# Make it possible to run this repo's own `make generate / fmt / check` inside the container.
+# go-jsonnet is built from source with the Go from Layer 4. The build cache is discarded to keep the image small.
 ARG JSONNET_VERSION=v0.22.0
 RUN set -eux; \
     GOBIN=/usr/local/bin go install \
@@ -261,13 +261,13 @@ RUN set -eux; \
     chmod 0755 /usr/local/bin/uv /usr/local/bin/uvx; \
     uv --version
 
-# Layer 11: Codex CLI (standalone package; Node は不要)
+# Layer 11: Codex CLI (standalone package; no Node needed)
 #
-# codex-package-* は bin/codex に加えて codex-resources/bwrap と codex-path/rg を同梱する (単体バイナリの
-# tarball には無い)。公式の install.sh は shell profile を書き換え、本体を CODEX_HOME (~/.codex) 配下に置くので
-# 使わない: ~/.codex は volume / ホストの bind になるため、そこに実体を置くと claude の実体を volume に
-# しないのと同じ理由で食い違う。/opt/codex に展開したこの版が正で、更新は CODEX_VERSION を上げて rebuild する。
-# 同じリリースの codex-package_SHA256SUMS で検証する (--ignore-missing でも、1 つも検証できなければ失敗する)。
+# codex-package-* bundles codex-resources/bwrap and codex-path/rg in addition to bin/codex (the single-binary
+# tarball does not). The official install.sh is not used: it rewrites the shell profile and puts the binary under CODEX_HOME (~/.codex),
+# and ~/.codex is a volume / host bind, so putting the binary there diverges for the same reason the claude binary
+# is not a volume. The version extracted to /opt/codex is authoritative; to update, bump CODEX_VERSION and rebuild.
+# Verified with codex-package_SHA256SUMS from the same release (even with --ignore-missing, it fails if nothing was verified).
 ARG CODEX_VERSION=rust-v0.163.0
 RUN set -eux; \
     arch="$(uname -m)"; \
@@ -288,13 +288,13 @@ RUN set -eux; \
     rm -rf /tmp/codex; \
     codex --version
 
-# Layer 12: Volta + Node.js (既定の node は LTS の固定版)
+# Layer 12: Volta + Node.js (the default node is a pinned LTS version)
 #
-# Volta はコンテナのユーザーとして ~/.volta に入れる。版の追加・切り替え (`volta install node@<ver>`) と
-# npm の global install が root なしで済む。installer (volta-install.sh) は使わず、リリースの tarball を sha256 で
-# 照合して ~/.volta/bin に展開する (installer がすることはそれだけで、shell profile の書き換えは --skip-setup で
-# 元から外していた)。PATH は ENV で通す (非対話シェルでも shim を解決できる)。package.json の volta.node で版を
-# 固定したプロジェクトでは shim がそちらに従う。aarch64 のアーカイブ名は `linux-arm`。
+# Volta is installed into ~/.volta as the container user. Adding / switching versions (`volta install node@<ver>`) and
+# npm global installs work without root. The installer (volta-install.sh) is not used; the release tarball is checked with sha256
+# and extracted to ~/.volta/bin (that is all the installer does; the shell profile rewrite was already disabled
+# with --skip-setup). PATH is set via ENV (shims resolve from non-interactive shells too). In projects that pin a version
+# with volta.node in package.json, the shim follows that. The aarch64 archive name is `linux-arm`.
 ARG VOLTA_VERSION=2.0.2
 ARG VOLTA_SHA256_X86_64=6cec054c911fb925b629a09455775af6e95dc0f5694a4c28b63979ab9ef18037
 ARG VOLTA_SHA256_AARCH64=1eb92f8b711753aa576352b2e580b2f3fdadeab8664929ca1da3d0de65448517
@@ -320,12 +320,12 @@ RUN set -eux; \
     node --version; \
     npm --version
 
-# Layer 13: headless Chromium の実行に要る共有ライブラリとフォント
+# Layer 13: shared libraries and fonts needed to run headless Chromium
 #
-# ブラウザ本体は入れない。Playwright などはライブラリの版ごとに対応するビルドを ~/.cache に取得するので、
-# イメージに焼くと版が食い違う。root が要る共有ライブラリだけを先に入れておく (`playwright install-deps
-# chromium` の Debian 12 向けの一覧から xvfb を除いたもの)。
-# フォントは描画結果 (文字の幅・重なり) を左右する。日本語が豆腐にならないよう CJK を入れる。
+# The browser itself is not installed. Playwright and similar fetch a matching build per library version into ~/.cache,
+# so baking one into the image would mismatch versions. Only the shared libraries that need root are installed up front (`playwright install-deps
+# chromium`'s list for Debian 12, minus xvfb).
+# Fonts affect rendering (glyph widths and overlaps). CJK is installed so Japanese does not render as tofu.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y \
@@ -360,7 +360,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/*; \
     fc-cache -f
 
-# Layer 14: Java (Amazon Corretto 21 LTS。TLC / Apalache など JVM 製のツール用)
+# Layer 14: Java (Amazon Corretto 21 LTS, for JVM-based tools such as TLC / Apalache)
 RUN set -eux; \
     curl -fsSL https://apt.corretto.aws/corretto.key \
       | gpg --dearmor -o /usr/share/keyrings/corretto-keyring.gpg; \
@@ -371,9 +371,9 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /var/tmp/*; \
     java -version
 
-# Layer 15: D2 (図の記述言語の CLI)
+# Layer 15: D2 (CLI for the diagram description language)
 #
-# ソースからビルドせず配布バイナリを使う (同梱のレイアウトエンジンを配布物と揃える)。
+# Use the distributed binary instead of building from source (keeps the bundled layout engines identical to the release).
 ARG D2_VERSION=v0.9.0
 ARG D2_SHA256_AMD64=5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9
 ARG D2_SHA256_ARM64=ac2c028697199479acb321db1e3d68caee9f2ba492ed73caa3cd13f3829bf913

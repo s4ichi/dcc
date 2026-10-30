@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# ホスト側の前処理。引数の credential モジュールごとに export と bind ソースの事前チェックを行う。
-# dcc up と devcontainer の initializeCommand から呼ぶ:
+# Host-side preprocessing. For each credential module given as an argument, export and pre-check bind sources.
+# Called from dcc up and the devcontainer initializeCommand:
 #   initialize.sh gpg aws
-# パスは compose と同じ DCC_* 環境変数 (同じ既定値) で解決する。
-# 出力は成功時は無し。警告は "warn: <module>: <message>" の 1 行 (dcc がそのまま ! 行にする)。
+# Paths are resolved with the same DCC_* environment variables as compose (same defaults).
+# No output on success. A warning is one line "warn: <module>: <message>" (dcc turns it into a ! line as-is).
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 
 warn_missing() {
-  # $1: パス、$2: モジュール名、$3: 補足
-  # ソースが無い bind は compose のバージョンによってエラーになるか、空ディレクトリが自動で作られる
+  # $1: path, $2: module name, $3: note
+  # A bind with no source either errors or gets an auto-created empty directory, depending on the compose version
   [ -e "$1" ] || echo "warn: $2: $1 not found; the module mounts it, so 'up' may fail or leave an empty directory there${3:+ ($3)}" >&2
 }
 
@@ -35,7 +35,7 @@ for module in "$@"; do
       warn_missing "${DCC_SSH_DIR:-$repo/capabilities/ssh/data}" ssh
       ;;
     gh)
-      # ホスト側の前処理は無い (状態は volume にあり、初回は dcc gh-login)。docs/github.md
+      # No host-side preprocessing (state lives in a volume; first time, dcc gh-login). docs/github.md
       ;;
     *)
       echo "warn: $module: unknown module (ignored)" >&2

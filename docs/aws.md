@@ -1,81 +1,81 @@
-# AWS 認証情報
+# AWS credentials
 
-**モジュール名: `aws`** — `dcc --creds aws` を指定したときだけ有効になる（[credentials.md](credentials.md)）。
+**Module name: `aws`** — enabled only when `dcc --creds aws` is given ([credentials.md](credentials.md)).
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| `~/.aws/login/cache/` | ホスト | `aws login` のセッション。ここから一時 credential を発行できる |
-| `~/.aws/credentials` | ホスト | 静的なアクセスキー。長期鍵 |
-| `~/.aws/config` | ホスト | profile 定義。秘密ではないが、どのアカウントに何があるかが分かる |
-| `~/.aws/sso/cache/`、`~/.aws/cli/cache/` | ホスト | SSO / CLI の token キャッシュ |
+| `~/.aws/login/cache/` | host | The `aws login` session. Temporary credentials can be issued from it |
+| `~/.aws/credentials` | host | Static access keys. Long-lived keys |
+| `~/.aws/config` | host | Profile definitions. Not secret, but reveals which accounts hold what |
+| `~/.aws/sso/cache/`, `~/.aws/cli/cache/` | host | SSO / CLI token caches |
 
-## 境界
+## Boundary
 
-| 軸 | この設計 |
+| Axis | This design |
 |---|---|
-| できること | 本体は「ホストで login 済みの 1 profile として、一時 credential を取得する」ことだけができる。profile の切り替えはできない（コンテナ作成時に固定） |
-| 届く範囲 | 本体には `~/.aws` を一切マウントしない。`config` と `login/cache` は非特権の `aws-credentials` sidecar にだけ ro で渡す。`credentials`（長期鍵）と SSO / CLI キャッシュはどこにも渡さない |
-| 鍵の渡し方 | **代行実行**。sidecar が `aws configure export-credentials` を実行し、本体は SDK の Container Credential Provider 経由（`AWS_CONTAINER_CREDENTIALS_FULL_URI`）で有効期限付きの一時 credential だけを受け取る。credential を取りに行くのは sidecar で、本体は結果を受け取るだけ |
+| What it can do | The agent container can only "obtain temporary credentials as one profile already logged in on the host". It cannot switch profiles (fixed at container creation) |
+| Reach | Nothing under `~/.aws` is mounted into the agent container. `config` and `login/cache` are passed ro only to the unprivileged `aws-credentials` sidecar. `credentials` (long-lived keys) and the SSO / CLI caches are passed nowhere |
+| How the key is passed | **Delegated execution**. The sidecar runs `aws configure export-credentials`, and the agent container receives only expiring temporary credentials through the SDK's Container Credential Provider (`AWS_CONTAINER_CREDENTIALS_FULL_URI`). The sidecar fetches the credentials; the agent container only receives the result |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナ（Claude が任意コードを実行しうる場所）が乗っ取られた場合:
+If the agent container (where Claude may run arbitrary code) is taken over:
 
-- 攻撃者が得られるのは「login セッションが有効な間、その profile の一時 credential を取得する能力」まで。一時 credential 自体は持ち出せるが、`Expiration` で失効する
-- 長期鍵（`~/.aws/credentials`）と login セッションの token は本体に無いので持ち出せない
-- endpoint は共有 netns の `127.0.0.1` にしかないため、inner container・ホスト・他の compose project からは到達できない
-- ホストで `aws logout` するか login セッションが切れれば、それ以降の発行は止まる
+- The attacker gains at most "the ability to obtain temporary credentials for that profile while the login session is valid". The temporary credentials themselves can be exfiltrated, but they expire at `Expiration`
+- The long-lived keys (`~/.aws/credentials`) and the login session token are not in the agent container, so they cannot be exfiltrated
+- The endpoint exists only on `127.0.0.1` in the shared netns, so it is unreachable from inner containers, the host, and other compose projects
+- Once you `aws logout` on the host or the login session expires, further issuance stops
 
-sidecar は自前の `server.py` しか動かさず、access log は method / path / status のみで credential を含めない。
+The sidecar runs nothing but its own `server.py`, and its access log contains only method / path / status, never credentials.
 
-## なぜこの構成か
+## Why this design
 
-- **`~/.aws` を本体に bind しない**: ro でも `config` / `credentials` の全 profile が読める。長期鍵をコンテナに持ち込まないのが原則
-- **netns 共有 + `127.0.0.1`**: AWS SDK の Container Credential Provider は `http://` の endpoint を loopback（127.0.0.1 / localhost / ::1）と ECS/EKS の link-local にしか許可しない。専用 network 越しの `http://aws-credentials:8080` は別 netns・別 IP なので botocore に `Unsupported host` で拒否される。そのため sidecar も `network_mode: service:docker` で Docker sidecar の netns に join する。帰結として endpoint は netns の内側からしか届かない（`ports` はそもそも書けない）
-- **sidecar 側でキャッシュしない**: SDK が `Expiration` まで自前でキャッシュし、login セッションの管理は CLI に任せる。sidecar は変換するだけ
-- **`depends_on` は agent → aws-credentials**: 両者とも `docker` の netns に join するだけで互いには依存しないため循環しない
+- **Do not bind `~/.aws` into the agent container**: even ro, every profile in `config` / `credentials` would be readable. The principle is not to bring long-lived keys into the container
+- **Shared netns + `127.0.0.1`**: the AWS SDK's Container Credential Provider allows `http://` endpoints only on loopback (127.0.0.1 / localhost / ::1) and the ECS/EKS link-local addresses. `http://aws-credentials:8080` over a dedicated network is a different netns and IP, so botocore rejects it with `Unsupported host`. Therefore the sidecar also joins the Docker sidecar's netns with `network_mode: service:docker`. As a consequence the endpoint is reachable only from inside the netns (`ports` cannot even be written)
+- **No caching in the sidecar**: the SDK caches on its own until `Expiration`, and login session management is left to the CLI. The sidecar only converts
+- **`depends_on` is agent → aws-credentials**: both merely join the `docker` netns and do not depend on each other, so there is no cycle
 
-## 仕組み
+## How it works
 
 ```
- agent (本体)                                 aws-credentials (sidecar, 非特権)
-  AWS_CONTAINER_CREDENTIALS_FULL_URI          python3 /server.py が 127.0.0.1:8080 で listen
+ agent (agent container)                      aws-credentials (sidecar, unprivileged)
+  AWS_CONTAINER_CREDENTIALS_FULL_URI          python3 /server.py listens on 127.0.0.1:8080
    = http://127.0.0.1:8080/credentials   ──►   GET /credentials
   AWS_REGION                                    └─ aws configure export-credentials
                                                     --profile $AWS_PROFILE --format process
                                               mount: ~/.aws/config (ro)
                                                      ~/.aws/login/cache (ro)
-        └───────── netns 共有（両者とも network_mode: service:docker）─────────┘
+        └───────── shared netns (both network_mode: service:docker) ─────────┘
 ```
 
-| 対象 | 行き先 | モード |
+| Item | Destination | Mode |
 |---|---|---|
-| `~/.aws/config`（`DCC_AWS_DIR` で変更可） | sidecar `/root/.aws/config` | ro |
+| `~/.aws/config` (configurable with `DCC_AWS_DIR`) | sidecar `/root/.aws/config` | ro |
 | `~/.aws/login/cache` | sidecar `/root/.aws/login/cache` | ro |
-| 一時 credential（AccessKeyId / SecretAccessKey / Token / Expiration） | 本体（HTTP） | — |
+| Temporary credentials (AccessKeyId / SecretAccessKey / Token / Expiration) | agent container (HTTP) | — |
 
-### セットアップ
+### Setup
 
-ホストで `aws login`（使う profile で）を済ませ、`AWS_PROFILE`（または `DCC_AWS_PROFILE`）を設定した状態で `dcc --creds aws` を実行する。
-コンテナ内では `aws sts get-caller-identity` で確認できる。
+Run `aws login` on the host (with the profile you will use), set `AWS_PROFILE` (or `DCC_AWS_PROFILE`), and run `dcc --creds aws`.
+Inside the container, check with `aws sts get-caller-identity`.
 
-### 詳細
+### Details
 
-- sidecar のイメージは `public.ecr.aws/aws-cli/aws-cli`（`capabilities/aws/`）。`GET /credentials` ごとに `export-credentials` を実行し、Container Credential Provider の形式に変換して返す。失敗時は 503（本文は `Code` / `Message` のみ）、`/credentials` 以外は 404
-- profile / region は `dcc` 実行時のホストの環境変数を compose が補間する（profile: `DCC_AWS_PROFILE` → `AWS_PROFILE` → `default`、region: `DCC_AWS_REGION` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`。[customization.md](customization.md)）。sidecar 自身にも `AWS_REGION` を渡す（profile に region が無いと `export-credentials` が `NoRegion` で失敗する）
-- `AWS_PROFILE` の変更は `dcc` が drift として警告する（ラベル `dcc.aws-profile`。適用は `dcc recreate`）
-- 本体の AWS CLI v2 / SDK（Go v2、boto3、Terraform など）は `AWS_CONTAINER_CREDENTIALS_FULL_URI` を自動で拾う。コンテナ内では profile という概念は使えない（`--profile` は `ProfileNotFound`）
-- `initialize.sh aws` が `config` / `login/cache` の存在を事前に警告する（無いと `up` が失敗するか、その場所に空ディレクトリが作られる。[customization.md](customization.md) の「bind のソースが無いとき」）
+- The sidecar image is `public.ecr.aws/aws-cli/aws-cli` (`capabilities/aws/`). For each `GET /credentials` it runs `export-credentials`, converts the result to the Container Credential Provider format, and returns it. On failure it returns 503 (body contains only `Code` / `Message`); anything other than `/credentials` is 404
+- compose interpolates profile / region from the host's environment variables at `dcc` run time (profile: `DCC_AWS_PROFILE` → `AWS_PROFILE` → `default`; region: `DCC_AWS_REGION` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`; [customization.md](customization.md)). `AWS_REGION` is also passed to the sidecar itself (if the profile has no region, `export-credentials` fails with `NoRegion`)
+- `dcc` warns about a change of `AWS_PROFILE` as drift (label `dcc.aws-profile`; apply with `dcc recreate`)
+- The agent container's AWS CLI v2 / SDKs (Go v2, boto3, Terraform, etc.) pick up `AWS_CONTAINER_CREDENTIALS_FULL_URI` automatically. Inside the container the concept of a profile is unavailable (`--profile` yields `ProfileNotFound`)
+- `initialize.sh aws` warns in advance if `config` / `login/cache` are missing (otherwise `up` fails or an empty directory is created at that location; see "When a bind source is missing" in [customization.md](customization.md))
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- ホストで `aws login` 済みであることが前提。期限切れなら endpoint は 503 を返す。ホストで再ログインすれば sidecar の再起動なしに次のリクエストから復旧する
-- 一時 credential は本体内の全プロセスから読める。持ち出されれば失効まで使える
-- sidecar は `export-credentials` の結果が一時 credential かどうかを検査しない。profile に静的な access key が書かれていれば
-  （`~/.aws/config` の `aws_access_key_id` 等）、`Expiration` の無い長期鍵がそのまま本体に渡る。「長期鍵は漏れない」は
-  profile が login / SSO / assume-role 系であることが前提
-- `~/.aws/login/cache` が ro のため、CLI が refresh token を書き戻す必要のあるフローで失敗する可能性がある（未検証。問題になれば `login/cache` だけ rw にするトレードオフ）
-- SSO profile（`aws sso login`）と `credential_process` で外部コマンドを呼ぶ profile は、sidecar に渡していない / コマンドが無いため動かない。必要なら `local/compose.yml` で足す
-- inner container からは endpoint が見えない（親 netns の `127.0.0.1` に届かない）。inner container に AWS 権限を渡すには明示的に環境変数等で渡すしかない
+- Assumes `aws login` has been done on the host. If expired, the endpoint returns 503. Logging in again on the host recovers from the next request without restarting the sidecar
+- Temporary credentials are readable by every process in the agent container. Once exfiltrated, they are usable until they expire
+- The sidecar does not check whether the result of `export-credentials` is temporary. If the profile has a static access key
+  (`aws_access_key_id` in `~/.aws/config`, etc.), a long-lived key with no `Expiration` is handed straight to the agent container. "Long-lived keys do not leak"
+  assumes the profile is of the login / SSO / assume-role kind
+- Because `~/.aws/login/cache` is ro, flows where the CLI must write back a refresh token may fail (unverified; if it becomes a problem, the trade-off is to make only `login/cache` rw)
+- SSO profiles (`aws sso login`) and profiles that call an external command via `credential_process` do not work, since those files are not passed to the sidecar / the command is absent. Add them with `local/compose.yml` if needed
+- Inner containers cannot see the endpoint (they cannot reach the parent netns's `127.0.0.1`). The only way to give an inner container AWS permissions is to pass them explicitly, e.g. via environment variables

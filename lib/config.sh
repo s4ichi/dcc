@@ -1,9 +1,9 @@
 # shellcheck shell=bash
-# 設定。${DCC_CONFIG_DIR}/.env の読み込み、既定値 (compose 側 template.jsonnet と同じ)、
-# DCC_CONTAINER_ENV_* の受け渡し、個人 Dockerfile の検出。
+# Settings. Reads ${DCC_CONFIG_DIR}/.env, defaults (same as template.jsonnet on the compose side),
+# passes DCC_CONTAINER_ENV_* through, detects the personal Dockerfile.
 
-# ${DCC_CONFIG_DIR}/.env を bash として読んで export する。シェルの環境変数が優先
-# (ファイルが代入する変数のうち既に設定済みのものを控えておき、読んだ後に戻す)
+# Reads ${DCC_CONFIG_DIR}/.env as bash and exports it. Shell environment variables take precedence
+# (variables the file assigns that are already set are saved and restored after reading)
 load_env_file() {
   local f="$1" key kv
   [ -f "$f" ] || return 0
@@ -18,8 +18,8 @@ load_env_file() {
   for kv in "${keep[@]+"${keep[@]}"}"; do export "${kv?}"; done
 }
 
-# compose の env_file (dotenv 形式) 用に値を引用する。単一引用符内は無解釈なので基本はそれを使い、
-# 値が単一引用符を含むときだけ二重引用符にして \ " $ をエスケープする
+# Quotes a value for compose's env_file (dotenv format). Single quotes are uninterpreted, so use them by default;
+# only when the value contains a single quote, use double quotes and escape \ " $
 dotenv_quote() {
   local v="$1"
   if [[ "$v" != *"'"* ]]; then
@@ -32,9 +32,9 @@ dotenv_quote() {
   fi
 }
 
-# DCC_CONTAINER_ENV_<NAME>=value をコンテナの環境変数 NAME にする。compose は動的な変数名を
-# 扱えないので、dotenv 形式の一時ファイルに書き出して env_file (DCC_CONTAINER_ENV_FILE) で渡す。
-# 一時ファイルは dcc の終了時に消す (compose が読むのはコンテナ作成時だけ)
+# Turns DCC_CONTAINER_ENV_<NAME>=value into the container environment variable NAME. compose cannot handle
+# dynamic variable names, so write them to a dotenv-format temp file and pass it via env_file (DCC_CONTAINER_ENV_FILE).
+# The temp file is removed when dcc exits (compose reads it only at container creation)
 export_container_env() {
   local var name
   local -a vars=()
@@ -51,22 +51,22 @@ export_container_env() {
   export DCC_CONTAINER_ENV_FILE="$CONTAINER_ENV_FILE"
 }
 
-# local/Dockerfile があれば本体イメージは 2 段 (リポジトリの Dockerfile → base、その上に個人)
+# If local/Dockerfile exists, the agent image is two-stage (repository Dockerfile -> base, personal on top)
 personal_image_enabled() {
   [ -f "$LOCAL_DIR/Dockerfile" ]
 }
 
-# .env を読み、既定値 (compose 側 template.jsonnet と同じ) を決める。CONFIG_DIR は dcc が先に解決している
+# Reads .env and determines defaults (same as template.jsonnet on the compose side). dcc resolves CONFIG_DIR beforehand
 load_config() {
   load_env_file "${DCC_ENV_FILE:-$CONFIG_DIR/.env}"
-  CREDS_DEFAULT="${DCC_CREDS:-}"   # DCC_CREDS は resolve_creds が結果で上書きするので、入力はここで取る
+  CREDS_DEFAULT="${DCC_CREDS:-}"   # resolve_creds overwrites DCC_CREDS with its result, so capture the input here
   AGENT_DEFAULT="${DCC_AGENT:-claude}"
 
-  # エージェントの起動時に dcc が先頭に足す引数 (空白区切り。引用は解釈しない)。`-` 展開なので、
-  # 空文字を設定すれば既定を無効にできる。codex の既定は「コンテナが sandbox」という位置づけで
-  # Codex 自身の sandbox (bubblewrap。user namespace が要り、既定ではネットワークも切る) だけを外す。
-  # 承認ポリシーには触らない。--sandbox ではなく -c (config.toml の上書き) にしているのは、利用者が
-  # `dcc exec -- --sandbox …` を重ねても同じ引数が重複しないようにするため。docs/codex.md
+  # Arguments dcc prepends when launching the agent (whitespace-separated; quotes are not interpreted). Uses `-` expansion,
+  # so setting an empty string disables the default. The codex default treats "the container is the sandbox" and
+  # only removes Codex's own sandbox (bubblewrap; needs a user namespace and by default also cuts the network).
+  # It doesn't touch the approval policy. It uses -c (config.toml override) rather than --sandbox so that the same
+  # argument is not duplicated when the user adds `dcc exec -- --sandbox ...`. docs/codex.md
   local codex_args_default="-c sandbox_mode=danger-full-access -c check_for_update_on_startup=false"
   CLAUDE_ARGS="${DCC_CLAUDE_ARGS-}"
   CODEX_ARGS="${DCC_CODEX_ARGS-$codex_args_default}"

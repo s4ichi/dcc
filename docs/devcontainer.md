@@ -1,34 +1,34 @@
-# devcontainer から使う
+# Using from devcontainer
 
-`dcc` はこのリポジトリの compose ファイルを `docker compose` で直接使う薄いラッパーで、
-devcontainer CLI には依存しない。同じ compose ファイルは devcontainer CLI / VS Code Dev Containers
-からも参照でき、credential モジュール（`aws` / `claude` / `codex` / `gpg` / `ssh` / `gh`）も同じ挙動で使える。
-このページはその使い方。
+`dcc` is a thin wrapper that uses this repository's compose files directly with `docker compose`, and it
+does not depend on the devcontainer CLI. The same compose files can also be referenced from the devcontainer CLI / VS Code Dev Containers,
+and the credential modules (`aws` / `claude` / `codex` / `gpg` / `ssh` / `gh`) behave the same way there.
+This page describes how.
 
-## 前提: devcontainer CLI が compose に渡さないもの
+## Assumption: what the devcontainer CLI does not pass to compose
 
-devcontainer CLI は `dockerComposeFile` の各要素を順番どおり `-f` に展開して `docker compose up` を
-呼ぶが、次の 2 つは**渡さない**（CLI のソースで確認済み）。
+The devcontainer CLI expands each element of `dockerComposeFile` into `-f` in order and calls `docker compose up`,
+but it **does not pass** the following two (confirmed in the CLI source).
 
-- ワークスペースのパス。`${localWorkspaceFolder}` の置換は `devcontainer.json` の中だけで、compose
-  ファイルには何の環境変数も渡らない
-- ホストで行う前処理の結果（`gpg` の公開鍵 export など）
+- The workspace path. `${localWorkspaceFolder}` substitution happens only inside `devcontainer.json`; no environment
+  variables at all are passed to the compose files
+- Results of preprocessing done on the host (such as the `gpg` public key export)
 
-このため base の `docker-compose.yml` には**ワークスペースの bind を置いていない**。`dcc` は
-`docker-compose.workspace.yml`（`dcc` が export する `LOCAL_WORKSPACE_FOLDER` で補間）を足し、
-devcontainer からはワークスペース側の compose ファイルで同じ bind を与える。ホスト側の前処理は
-`lifecycle_hooks/initialize.sh` に切り出してあり、`initializeCommand` から呼ぶ。
+For this reason the base `docker-compose.yml` **does not contain the workspace bind**. `dcc` adds
+`docker-compose.workspace.yml` (interpolated with `LOCAL_WORKSPACE_FOLDER`, which `dcc` exports), and
+from devcontainer a compose file on the workspace side provides the same bind. Host-side preprocessing is
+split out into `lifecycle_hooks/initialize.sh`, which is called from `initializeCommand`.
 
-## 設定例
+## Example configuration
 
-ワークスペースに 2 ファイル置く。`<repo>` はこのリポジトリ（デフォルト
-`~/.config/dcc`）。
+Put two files in the workspace. `<repo>` is this repository (default
+`~/.config/dcc`).
 
 ### `.devcontainer/compose.yml`
 
-ワークスペースの bind。本体（`agent`）と Docker sidecar（`docker`）の**両方**に、同一パスで bind する
-（`docker run -v /workspaces/<name>/x:/x` の bind を解決するのは sidecar の dockerd だから）。
-`<name>` は `devcontainer.json` の `workspaceFolder` と揃える。
+The workspace bind. Bind it at the same path into **both** the agent container (`agent`) and the Docker sidecar (`docker`)
+(because the bind in `docker run -v /workspaces/<name>/x:/x` is resolved by the sidecar's dockerd).
+Make `<name>` match `workspaceFolder` in `devcontainer.json`.
 
 ```yaml
 services:
@@ -66,73 +66,72 @@ services:
 }
 ```
 
-- **`compose.yml` を先頭に置く。** compose の project directory は最初の `-f` の親になり、
-  `compose.yml` の `source: ..` はそれを基準に解決される（= ワークスペース）。このリポジトリ側の
-  compose ファイルはリポジトリ内のパスをすべて `${DCC_CONFIG_DIR}` 基準の絶対パスで書いているので、
-  project directory がどこでも動く
-- 使うモジュールは `capabilities/<name>/compose.yml` を `dockerComposeFile` に足すだけ。同じ名前を
-  `initializeCommand` の引数にも書く（ホスト側の前処理と事前チェック）
-- `${localEnv:HOME}` は devcontainer CLI が置換する。リポジトリを別の場所に clone した場合はパスを
-  変え、compose が同じ場所を見るようにシェルで `DCC_CONFIG_DIR` を export する
-  （compose ファイル内の既定値は `~/.config/dcc`）
-- 利用者ごとの設定（`DCC_*`。[customization.md](customization.md)）は**シェルの環境変数**で渡す。
-  `dcc` が読む `${DCC_CONFIG_DIR}/.env` は、project directory がワークスペース側になるため compose からも
-  読まれない。`DCC_COMPOSE_FILES` 相当は `dockerComposeFile` に自分の overlay を並べればよい。
-  `DCC_CONTAINER_ENV_<NAME>` は `dcc` が集めるので効かない。コンテナに渡す環境変数は dotenv 形式のファイルを
-  書いて `DCC_CONTAINER_ENV_FILE` でそのパスを渡すか、自分の overlay の `environment` に書く
-- `local/Dockerfile`（[customization.md](customization.md)）は `dcc` を通らないと自動検出されない。使うなら
-  シェルで `DCC_BUILD_CONTEXT=<repo>/local` と `DCC_DOCKERFILE=<repo>/local/Dockerfile` を export し、
-  `FROM` 先の base を先に作る（`dcc build` を一度実行するか、次を実行する）:
+- **Put `compose.yml` first.** The compose project directory becomes the parent of the first `-f`, and
+  `source: ..` in `compose.yml` is resolved relative to it (= the workspace). This repository's compose files
+  write every in-repository path as an absolute path based on `${DCC_CONFIG_DIR}`, so they work
+  wherever the project directory is
+- To use a module, just add `capabilities/<name>/compose.yml` to `dockerComposeFile`. Write the same name
+  in the arguments of `initializeCommand` too (host-side preprocessing and pre-checks)
+- `${localEnv:HOME}` is substituted by the devcontainer CLI. If you cloned the repository elsewhere, change the paths
+  and export `DCC_CONFIG_DIR` in the shell so that compose looks at the same place
+  (the default inside the compose files is `~/.config/dcc`)
+- Pass per-user settings (`DCC_*`; [customization.md](customization.md)) as **shell environment variables**.
+  The `${DCC_CONFIG_DIR}/.env` that `dcc` reads is not read by compose either, because the project directory is on the
+  workspace side. The equivalent of `DCC_COMPOSE_FILES` is listing your own overlays in `dockerComposeFile`.
+  `DCC_CONTAINER_ENV_<NAME>` has no effect because `dcc` is what collects it. For environment variables to pass to the container, write a
+  dotenv-format file and pass its path via `DCC_CONTAINER_ENV_FILE`, or write them in `environment` in your own overlay
+- `local/Dockerfile` ([customization.md](customization.md)) is not auto-detected unless you go through `dcc`. To use it,
+  export `DCC_BUILD_CONTEXT=<repo>/local` and `DCC_DOCKERFILE=<repo>/local/Dockerfile` in the shell, and
+  build the base that `FROM` refers to first (run `dcc build` once, or run the following):
   `docker compose -f <repo>/docker-compose.yml -f <repo>/docker-compose.base-image.yml build agent`
-- `postCreateCommand` は `dcc` が使うものと同じスクリプト（コンテナユーザー側）。`~/.claude.json` のコピー、
-  `claude update`、`gpg` 有効時の検証用 keyring 構築を行う。root が要る部分（`safe.directory` の登録、`gpg` / `gh` 有効時の
-  system gitconfig への登録、`HOST_HOME` の symlink）は `postCreate-root.sh` にあり、本体に sudo が無いため
-  `postCreateCommand`（`remoteUser` で実行される）からは呼べない。初回の up の後にホストから一度実行する:
+- `postCreateCommand` is the same script `dcc` uses (container-user side). It copies `~/.claude.json`,
+  runs `claude update`, and builds the verification keyring when `gpg` is enabled. The parts that need root (registering `safe.directory`, registering in the
+  system gitconfig when `gpg` / `gh` is enabled, the `HOST_HOME` symlink) are in `postCreate-root.sh`, and because the agent container has no sudo
+  they cannot be called from `postCreateCommand` (which runs as `remoteUser`). Run it once from the host after the first up:
 
   ```bash
   docker compose -p <name>_devcontainer exec --user root --workdir /workspaces/<name> agent \
     bash /usr/local/lib/dcc/hooks/postCreate-root.sh agent
   ```
 
-  （`<name>_devcontainer` は devcontainer CLI が付けるプロジェクト名。`dcc list` でも確認できる）
+  (`<name>_devcontainer` is the project name the devcontainer CLI assigns. You can also check it with `dcc list`)
 
-起動は通常どおり `devcontainer up --workspace-folder .` / `devcontainer exec --workspace-folder . claude`、
-または VS Code の "Reopen in Container"。
+Start as usual with `devcontainer up --workspace-folder .` / `devcontainer exec --workspace-folder . claude`,
+or "Reopen in Container" in VS Code.
 
-## モジュールごとの補足
+## Notes per module
 
-| モジュール | devcontainer 側で必要なこと |
+| Module | What is needed on the devcontainer side |
 |---|---|
-| `ssh` | `dockerComposeFile` に overlay を足すだけ |
-| `gh` | overlay を足し、ホストで一度 `dcc gh-login` を実行する（external volume `dcc-gh-home` の作成と token の用意を行う。ワークスペースに依存しないので devcontainer の外で実行してよい）。`dcc build` をしていなければ sidecar のイメージは up 時に build される |
-| `claude` | overlay を足すとホストの `~/.claude` を共有する。足さない場合は base が external volume `dcc-claude-home` を要求するので、先に `docker volume create dcc-claude-home` を一度実行する（`dcc` は自動で作る） |
-| `codex` | `claude` と同じ。overlay を足すとホストの `~/.codex` を共有する。足さない場合は `docker volume create dcc-codex-home` を一度実行する。**base が両方の volume を参照するので、Codex を使わなくても `dcc-codex-home` は必要**（Claude Code を使わない場合の `dcc-claude-home` も同様）。devcontainer から `codex` を起動するときは `dcc` の既定引数が付かないので、`codex -c sandbox_mode=danger-full-access` のように自分で渡すか `~/.codex/config.toml` に書く（[codex.md](codex.md)） |
-| `aws` | `dockerComposeFile` に overlay を足すだけ。`initializeCommand` に `aws` を書くと `~/.aws/config` / `~/.aws/login/cache` の存在を事前チェックする。`AWS_PROFILE` / `AWS_REGION` はシェルの環境変数から compose が拾う |
-| `gpg` | `initializeCommand` に `gpg` を書く（**必須**。ホストの公開鍵 / 署名鍵情報を `capabilities/gpg/gnupg-host` へ export する。無いと sidecar は署名鍵を持たない）。up 後にターミナルから `<repo>/capabilities/gpg/warm.sh` を一度実行してパスフレーズを sidecar にキャッシュする（下記） |
+| `ssh` | just add the overlay to `dockerComposeFile` |
+| `gh` | add the overlay and run `dcc gh-login` once on the host (creates the external volume `dcc-gh-home` and prepares the token; it does not depend on the workspace, so it can be run outside devcontainer). If you have not run `dcc build`, the sidecar image is built at up |
+| `claude` | adding the overlay shares the host's `~/.claude`. If not added, the base requires the external volume `dcc-claude-home`, so run `docker volume create dcc-claude-home` once beforehand (`dcc` creates it automatically) |
+| `codex` | same as `claude`. Adding the overlay shares the host's `~/.codex`. If not added, run `docker volume create dcc-codex-home` once. **The base references both volumes, so `dcc-codex-home` is needed even if you do not use Codex** (likewise `dcc-claude-home` if you do not use Claude Code). When starting `codex` from devcontainer, `dcc`'s default arguments are not added, so pass them yourself as in `codex -c sandbox_mode=danger-full-access` or write them in `~/.codex/config.toml` ([codex.md](codex.md)) |
+| `aws` | just add the overlay to `dockerComposeFile`. Writing `aws` in `initializeCommand` pre-checks that `~/.aws/config` / `~/.aws/login/cache` exist. compose picks up `AWS_PROFILE` / `AWS_REGION` from shell environment variables |
+| `gpg` | write `gpg` in `initializeCommand` (**required**; exports the host's public key / signing key information to `capabilities/gpg/gnupg-host`. Without it the sidecar has no signing key). After up, run `<repo>/capabilities/gpg/warm.sh` once from a terminal to cache the passphrase in the sidecar (below) |
 
-### `gpg` のパスフレーズ warm
+### Warming the `gpg` passphrase
 
-署名鍵のパスフレーズは `gpg-signer` sidecar 内の gpg-agent にキャッシュされ、sidecar の寿命いっぱい
-残る（[gpg.md](gpg.md)）。入力は sidecar 内の pinentry で行うため対話ターミナルが要り、
-`initializeCommand`（sidecar 起動前）や `postCreateCommand`（本体コンテナ内）からは行えない。
-`dcc` は claude 起動直前に自動で行うが、devcontainer からは up 後にホストのターミナルで一度実行する:
+The signing key's passphrase is cached in the gpg-agent inside the `gpg-signer` sidecar and stays for the sidecar's
+whole lifetime ([gpg.md](gpg.md)). It is entered through pinentry inside the sidecar, so an interactive terminal is needed, and
+it cannot be done from `initializeCommand` (before the sidecar starts) or `postCreateCommand` (inside the agent container).
+`dcc` does it automatically right before starting claude, but from devcontainer run it once in a host terminal after up:
 
 ```bash
 cd <workspace>
-~/.config/dcc/capabilities/gpg/warm.sh          # カレントのワークスペースから sidecar を探す
-~/.config/dcc/capabilities/gpg/warm.sh -p <project>  # compose プロジェクト名で指定
+~/.config/dcc/capabilities/gpg/warm.sh          # find the sidecar from the current workspace
+~/.config/dcc/capabilities/gpg/warm.sh -p <project>  # specify by compose project name
 ```
 
-未 warm のまま `git commit -S` すると、wrapper が sidecar の 503 を表示して失敗する（hang はしない）。
-`dcc stop` 相当（`shutdownAction: stopCompose` で VS Code を閉じた場合など）で sidecar が止まると
-キャッシュは消えるので、次の起動後に再度実行する。
+If you run `git commit -S` without warming, the wrapper shows the sidecar's 503 and fails (it does not hang).
+When the sidecar stops through the equivalent of `dcc stop` (e.g. closing VS Code with `shutdownAction: stopCompose`),
+the cache is lost, so run it again after the next start.
 
-## `dcc` との共存
+## Coexisting with `dcc`
 
-- `dcc list` / `dcc inspect` / `dcc stop --all` / `dcc clear --all` は devcontainer CLI が付ける
-  `devcontainer.local_folder` ラベルも見るので、devcontainer で作ったコンテナも一覧・停止・削除の
-  対象になる
-- 同じワークスペースを `dcc` と devcontainer の両方で開くと compose プロジェクトが 2 つできる
-  （`dcc` は `dcc-<basename>-<hash>`、devcontainer CLI は `<basename>_devcontainer`）。named volume
-  もプロジェクトごとに分かれる
-- `dcc` の credential drift 検出と、フラグ無し `dcc` が既存コンテナの選択を引き継ぐ挙動（どちらも `dcc.credentials` ラベル）は `dcc` が作ったコンテナだけが対象
+- `dcc list` / `dcc inspect` / `dcc stop --all` / `dcc clear --all` also look at the `devcontainer.local_folder`
+  label the devcontainer CLI assigns, so containers created by devcontainer are also listed, stopped, and deleted
+- Opening the same workspace with both `dcc` and devcontainer creates two compose projects
+  (`dcc-<basename>-<hash>` for `dcc`, `<basename>_devcontainer` for the devcontainer CLI). Named volumes
+  are also separate per project
+- `dcc`'s credential drift detection and flagless `dcc` inheriting the existing container's selection (both use the `dcc.credentials` label) apply only to containers created by `dcc`

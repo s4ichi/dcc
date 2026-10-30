@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# git の gpg.program として動く wrapper。
-# 署名 (`<program> --status-fd=2 -bsau <key>`) は payload を gpg-signer sidecar に POST し、
-# sidecar 内の gpg の status 出力を fd2 へそのまま中継する。鍵は sidecar 側で固定 (<key> は使わない)。
-# それ以外 (--verify 等) は素の gpg に委譲する。
+# Wrapper that acts as git's gpg.program.
+# Signing (`<program> --status-fd=2 -bsau <key>`) POSTs the payload to the gpg-signer sidecar and
+# relays the status output of gpg in the sidecar to fd2 as is. The key is fixed on the sidecar side (<key> is ignored).
+# Everything else (--verify etc.) is delegated to plain gpg.
 set -euo pipefail
 
 mode=passthrough

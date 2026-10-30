@@ -1,15 +1,15 @@
 # shellcheck shell=bash
-# credential モジュール (capabilities/<name>/compose.yml)。
-# 入力: CREDS_REQUEST / CREDS_EXPLICIT (parse_args)、CREDS_DEFAULT (環境の DCC_CREDS)、既存コンテナのラベル
-# 結果: CREDS (空白区切り、正規順)、DCC_CREDS (カンマ区切り、compose 用に export)、ALL_CREDS、
-#       CREDS_SOURCE (flags | container | DCC_CREDS | none。表示用)
-# 既存コンテナとの不一致 (drift) の検査もここ。
+# Credential modules (capabilities/<name>/compose.yml).
+# Input: CREDS_REQUEST / CREDS_EXPLICIT (parse_args), CREDS_DEFAULT (DCC_CREDS from the environment), existing container's labels
+# Result: CREDS (whitespace-separated, canonical order), DCC_CREDS (comma-separated, exported for compose), ALL_CREDS,
+#       CREDS_SOURCE (flags | container | DCC_CREDS | none; for display)
+# Checking for mismatch with the existing container (drift) is also here.
 
 cred_overlay() {
   printf '%s/%s/compose.yml' "$CAPABILITIES_DIR" "$1"
 }
 
-# 利用可能なモジュール名 = capabilities/<name>/compose.yml のディレクトリ名 (1 行 1 つ、ソート順 = 正規順)
+# Available module names = directory names of capabilities/<name>/compose.yml (one per line, sort order = canonical order)
 list_all_creds() {
   local f
   for f in "$CAPABILITIES_DIR"/*/compose.yml; do
@@ -19,9 +19,9 @@ list_all_creds() {
   done
 }
 
-# 優先順: フラグ > (--adopt のとき) 既存コンテナのラベル > DCC_CREDS > 無し。
-# モジュールは作成時にしか反映できないので、フラグ無しの `dcc` は既存コンテナ (停止中も含む) の
-# 選択をそのまま使う。フラグを付けたときだけ check_creds_drift が不一致を警告する
+# Precedence: flags > (with --adopt) existing container's label > DCC_CREDS > none.
+# Modules can only take effect at creation, so `dcc` without flags uses the existing container's (including stopped)
+# selection as-is. Only when flags are given does check_creds_drift warn about a mismatch
 resolve_creds() {
   local all requested name running
   all="$(list_all_creds)"
@@ -59,7 +59,7 @@ has_cred() {
   return 1
 }
 
-# COMPOSE_FILES: base → workspace → credential overlay ($1: 空白区切り) → local/compose.yml → DCC_COMPOSE_FILES
+# COMPOSE_FILES: base -> workspace -> credential overlay ($1: whitespace-separated) -> local/compose.yml -> DCC_COMPOSE_FILES
 compose_files() {
   local name f
   for f in docker-compose.yml docker-compose.workspace.yml; do
@@ -78,7 +78,7 @@ compose_files() {
   done
 }
 
-# 今回の選択を適用するためのコマンド (警告の 2 行目に出す)
+# Command to apply this selection (shown on the second line of the warning)
 recreate_hint() {
   if [ -n "$DCC_CREDS" ]; then
     printf "dcc recreate --creds %s" "$DCC_CREDS"
@@ -87,20 +87,20 @@ recreate_hint() {
   fi
 }
 
-# ホストが今 export した署名鍵 (fingerprint)。無ければ空
+# Signing key (fingerprint) the host just exported. Empty if none
 host_signing_key() {
   cat "$GPG_EXPORT_DIR/signing-key.txt" 2>/dev/null || true
 }
 
-# 既存コンテナに焼き込まれたものと今回の要求が違えば警告する。作り直すまで反映されないので、
-# ここでは警告だけして既存に接続する。3 つの検査はそれぞれ独立
+# Warns if what is baked into the existing container differs from this request. It doesn't take effect until recreated,
+# so here it only warns and connects to the existing one. The three checks are independent
 check_drift() {
   check_creds_drift
   check_aws_profile_drift
   check_gpg_key_drift
 }
 
-# credential モジュールの選択 (ラベル dcc.credentials)
+# Credential module selection (label dcc.credentials)
 check_creds_drift() {
   local running name added="" removed=""
   running="$(agent_label dcc.credentials | tr ',' ' ')" || return 0
@@ -115,7 +115,7 @@ check_creds_drift() {
     "run '$(recreate_hint)' to apply"
 }
 
-# aws モジュールの AWS_PROFILE (ラベル dcc.aws-profile)
+# AWS_PROFILE of the aws module (label dcc.aws-profile)
 check_aws_profile_drift() {
   has_cred aws || return 0
   local want running
@@ -126,7 +126,7 @@ check_aws_profile_drift() {
     "run 'AWS_PROFILE=$want $(recreate_hint)' to apply"
 }
 
-# gpg モジュールの署名鍵 (実行中の gpg-signer が固定した鍵と、ホストが今 export した鍵)
+# Signing key of the gpg module (the key pinned by the running gpg-signer, and the key the host just exported)
 check_gpg_key_drift() {
   has_cred gpg || return 0
   local running want
@@ -137,7 +137,7 @@ check_gpg_key_drift() {
     "run '$(recreate_hint)' to apply"
 }
 
-# dcc creds の出力 (stdout)。利用可能なモジュール / 既定値 / 今回の解決結果 / 既存コンテナの選択
+# Output of dcc creds (stdout). Available modules / defaults / this resolution / existing container's selection
 show_creds() {
   local running
   echo "available: $ALL_CREDS"

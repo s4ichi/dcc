@@ -1,15 +1,15 @@
-# GitHub token sidecar。
-# gh の状態 (refresh token を含む hosts.yml と refresh.lock) はこのコンテナにだけ mount する。
-# server.py が 127.0.0.1:8082 で `gh auth token` の結果 (短命の access token) を返す
-# (本体とは netns 共有)。docs/github.md
+# GitHub token sidecar.
+# gh state (hosts.yml containing the refresh token, and refresh.lock) is mounted only into this container.
+# server.py returns the result of `gh auth token` (a short-lived access token) on 127.0.0.1:8082
+# (netns shared with the agent container). docs/github.md
 FROM debian:bookworm-slim
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl python3 \
   && rm -rf /var/lib/apt/lists/*
 
-# expiring credentials には 2.103.0 以上が要るので apt の stable ではなく版を固定する。
-# 上げるときは ARG の既定値を書き換える。同じリリースの checksums で検証する
+# Expiring credentials need 2.103.0 or later, so pin a version instead of using apt's stable.
+# To bump it, rewrite the ARG default. Verified with the checksums from the same release
 ARG GH_VERSION=2.103.0
 RUN set -eux; \
     arch="$(uname -m)"; \
@@ -29,7 +29,7 @@ RUN set -eux; \
     rm -rf /tmp/gh /usr/local/share/man; \
     gh --version
 
-# 非 root で動かす。空の named volume は初回 mount 時にこのディレクトリの所有者とモードを引き継ぐ
+# Run as non-root. An empty named volume inherits this directory's owner and mode on first mount
 RUN useradd --create-home --shell /usr/sbin/nologin gh \
   && install -d -m 0700 -o gh -g gh /home/gh/.config/gh
 

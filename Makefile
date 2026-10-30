@@ -1,15 +1,15 @@
 JSONNET ?= jsonnet
 SRC := template.jsonnet
 OUT := docker-compose.yml docker-compose.workspace.yml docker-compose.base-image.yml capabilities/*/compose.yml
-# lib/*.sh は dcc の source 指示 (# shellcheck source=) 経由で -x が辿るので、個別には並べない
+# lib/*.sh is followed by -x via the source directives in dcc (# shellcheck source=), so it is not listed separately
 SCRIPTS := dcc lifecycle_hooks/*.sh capabilities/gpg/*.sh capabilities/gh/*.sh
 
 .PHONY: all generate fmt check lint test clean
 
 all: generate
 
-# -S -m: トップレベルの各フィールド (ファイル名 → 文字列) をそれぞれファイルに書き出す。
-# jsonnet はサブディレクトリを作らないので、出力ファイル名一覧から先に mkdir する。
+# -S -m: write each top-level field (file name -> string) to its own file.
+# jsonnet does not create subdirectories, so mkdir them first from the list of output file names.
 generate:
 	$(JSONNET) -S -e "std.join('\n', std.objectFields(import '$(SRC)'))" | xargs -n1 dirname | sort -u | xargs mkdir -p
 	$(JSONNET) -S -m . $(SRC)
@@ -17,7 +17,7 @@ generate:
 fmt:
 	jsonnetfmt -i $(SRC)
 
-# Jsonnet の評価 + シェルスクリプトの静的検査 + テスト
+# Evaluate Jsonnet + static checks of the shell scripts + tests
 check: lint test
 	$(JSONNET) $(SRC) >/dev/null
 

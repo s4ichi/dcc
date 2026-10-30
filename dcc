@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# dcc: docker compose の薄いラッパー。ワークスペースごとに本体 (agent) + docker sidecar を管理する。
-# 使い方は `dcc help` と README.md、仕様は docs/architecture.md。
+# dcc: a thin wrapper around docker compose. Manages the agent container (agent) + docker sidecar per workspace.
+# Usage is in `dcc help` and README.md; the spec is docs/architecture.md.
 #
-# 本体は lib/*.sh (すべて DCC_CONFIG_DIR 基準で探す。compose ファイルと同じ場所):
-#   log.sh      出力の形式 (▸ / ! / ✓)、外部コマンドの実行と失敗時のダンプ
-#   config.sh   .env の読み込み、既定値、DCC_CONTAINER_ENV_*
-#   cli.sh      引数、ワークスペースとプロジェクト名、ヘッダーと usage
-#   creds.sh    credential モジュールの解決と drift 検査
-#   docker.sh   docker / compose の状態を読む (変更しない)
-#   project.sh  compose プロジェクトを変える (build / up / stop / down …)
-#   all.sh      全ワークスペース横断
-# 実行の流れは main のとおり。トップレベルで実行するのは末尾の main だけで、source すると
-# 関数定義だけが読まれる (テスト用)。
+# The implementation is lib/*.sh (all looked up relative to DCC_CONFIG_DIR, same place as the compose files):
+#   log.sh      output format (▸ / ! / ✓), running external commands and dumping them on failure
+#   config.sh   reading .env, defaults, DCC_CONTAINER_ENV_*
+#   cli.sh      arguments, workspace and project name, header and usage
+#   creds.sh    resolving credential modules and checking drift
+#   docker.sh   reads docker / compose state (changes nothing)
+#   project.sh  changes the compose project (build / up / stop / down ...)
+#   all.sh      across all workspaces
+# The flow of execution is as in main. Only main at the end runs at top level; sourcing the file
+# only loads function definitions (for tests).
 set -euo pipefail
 
-# このリポジトリの場所。$0 からは辿らない (dcc は PATH 上に symlink / コピーで置かれうる)
+# Location of this repository. Not derived from $0 (dcc may be placed on PATH as a symlink / copy)
 CONFIG_DIR="${DCC_CONFIG_DIR:-$HOME/.config/dcc}"
 CONFIG_DIR="$(cd "$CONFIG_DIR" && pwd)"
 export DCC_CONFIG_DIR="$CONFIG_DIR"
@@ -39,7 +39,7 @@ main() {
   resolve_workspace
   set -- "${ARGS[@]+"${ARGS[@]}"}"
 
-  # これらのコマンドは、フラグが無ければ既存コンテナの選択を引き継ぐ (--adopt)。他は選択を使わない
+  # Without flags, these commands inherit the existing container's selection (--adopt). Others don't use the selection
   case "$COMMAND" in
     default|exec|up|recreate|creds) resolve_creds --adopt ;;
     *) resolve_creds ;;

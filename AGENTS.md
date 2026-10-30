@@ -1,9 +1,9 @@
 # AGENTS.md
 
-このリポジトリで作業するエージェント向けの入口。作業規約・ファイルの役割・壊してはいけない不変条件は
-[CLAUDE.md](CLAUDE.md) にまとめてあり、Claude Code 以外のエージェントも同じ規約に従う。作業の前に読むこと。
+Entry point for agents working in this repository. The working conventions, file roles, and invariants that must not break are
+collected in [CLAUDE.md](CLAUDE.md), and agents other than Claude Code follow the same conventions. Read it before starting work.
 
-- 仕様の正は `docs/`（索引は [docs/README.md](docs/README.md)）
-- `docker-compose*.yml` と `capabilities/*/compose.yml` は生成物。`template.jsonnet` を変えて `make fmt && make generate` する
-- `dcc` / `lib/*.sh` / フックを変えたら `make check` を通す
-- `.env`、`local/`、`capabilities/{ssh,gh}/data/`、`capabilities/gpg/gnupg-host/` は利用者の設定と秘密情報。読まない・コミットしない
+- The source of truth for the specification is `docs/` (index: [docs/README.md](docs/README.md))
+- `docker-compose*.yml` and `capabilities/*/compose.yml` are generated files. Change `template.jsonnet` and run `make fmt && make generate`
+- If you change `dcc` / `lib/*.sh` / the hooks, make `make check` pass
+- `.env`, `local/`, `capabilities/{ssh,gh}/data/`, and `capabilities/gpg/gnupg-host/` are the user's settings and secrets. Do not read them, do not commit them

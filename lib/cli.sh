@@ -1,15 +1,15 @@
 # shellcheck shell=bash
-# コマンドライン。引数の解釈 (parse_args)、ワークスペースと compose プロジェクト名 (resolve_workspace)、
-# 利用者向けの文面 (print_header / usage)。
+# Command line. Argument parsing (parse_args), workspace and compose project name (resolve_workspace),
+# user-facing text (print_header / usage).
 
-# dcc が解釈するのは credential オプション、--agent、--all だけ。それ以外の --xxx と `--` 以降は ARGS に残し、
-# コマンドへそのまま渡す (exec ならエージェント、build なら docker compose build)。先頭の非オプションが COMMAND。
-# AGENT (実行するエージェント) もここで確定する: --agent > DCC_AGENT (load_config の AGENT_DEFAULT) > claude
+# dcc interprets only credential options, --agent and --all. Other --xxx and everything after `--` stay in ARGS
+# and are passed as-is to the command (the agent for exec, docker compose build for build). The first non-option is COMMAND.
+# AGENT (the agent to run) is also fixed here: --agent > DCC_AGENT (load_config's AGENT_DEFAULT) > claude
 parse_args() {
   local agent_request=""
   ALL=0
-  CREDS_EXPLICIT=0              # --creds / --all-creds / --no-creds のどれかが指定された
-  CREDS_REQUEST=""              # 指定されたモジュール (カンマ区切り。--creds の繰り返しは和集合)
+  CREDS_EXPLICIT=0              # one of --creds / --all-creds / --no-creds was given
+  CREDS_REQUEST=""              # requested modules (comma-separated; repeated --creds are unioned)
   ARGS=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -58,7 +58,7 @@ parse_args() {
   esac
 }
 
-# stdin の sha256 の先頭 8 桁 (macOS: shasum、Linux: sha256sum)
+# First 8 hex digits of the sha256 of stdin (macOS: shasum, Linux: sha256sum)
 sha256_prefix() {
   if command -v shasum >/dev/null 2>&1; then
     shasum -a 256 | cut -c1-8
@@ -67,7 +67,7 @@ sha256_prefix() {
   fi
 }
 
-# dcc-<basename ([a-z0-9_-] のみ)>-<パスの sha256 先頭 8 桁>。同名ディレクトリ同士も衝突しない
+# dcc-<basename ([a-z0-9_-] only)>-<first 8 digits of the path's sha256>. Same-named directories don't collide
 project_name() {
   local base hash
   base="$(printf '%s' "$LOCAL_WORKSPACE_BASENAME" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
@@ -75,8 +75,8 @@ project_name() {
   printf 'dcc-%s-%s' "$base" "$hash"
 }
 
-# ワークスペース: 先頭の引数がディレクトリならそれ → DCC_WORKSPACE → $PWD。
-# LOCAL_WORKSPACE_* は workspace overlay が、COMPOSE_PROJECT_NAME は compose() が使う
+# Workspace: the first argument if it is a directory -> DCC_WORKSPACE -> $PWD.
+# LOCAL_WORKSPACE_* are used by the workspace overlay, COMPOSE_PROJECT_NAME by compose()
 resolve_workspace() {
   WORKSPACE="${DCC_WORKSPACE:-$PWD}"
   if [ "${#ARGS[@]}" -gt 0 ] && [ -d "${ARGS[0]}" ]; then
@@ -92,7 +92,7 @@ resolve_workspace() {
   export COMPOSE_PROJECT_NAME
 }
 
-# ヘッダーブロック。以降のログは 1 行 1 情報なので、毎回変わらない事実 (どこで・何を渡して・どのイメージで) はここにまとめる
+# Header block. Later logs are one fact per line, so facts that don't change per run (where, passing what, which image) go here
 print_header() {
   local name disabled="" image
   for name in $ALL_CREDS; do

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# コンテナ作成後にコンテナユーザーで一度だけ実行する (cwd はワークスペース)。root が要る処理は
-# postCreate-root.sh (dcc が先に root で実行する) に置く。本体に sudo は無い。
-# 出力は「コンテナがどうなったか」を "<主語>: <述語>" で 1 行ずつ (dcc がそのまま ▸ 行にする)。
-# 警告は "warn: <主語>: <述語>"。毎回同じ結果になる処理 (safe.directory 等) は書かない。
-# shellcheck disable=SC2088  # 主語の "~/.claude" は表示用の文字列で、展開させない
+# Run once as the container user after container creation (cwd is the workspace). Work that needs root goes in
+# postCreate-root.sh (dcc runs it first as root). The agent container has no sudo.
+# Output is "what happened to the container" as "<subject>: <predicate>", one per line (dcc turns them into ▸ lines as-is).
+# Warnings are "warn: <subject>: <predicate>". Don't print work whose result is the same every time (safe.directory etc.).
+# shellcheck disable=SC2088  # the subject "~/.claude" is a string for display and must not be expanded
 set -euo pipefail
 
 has_cred() {
@@ -11,19 +11,19 @@ has_cred() {
   return 1
 }
 
-# Claude Code を最新にする。結果はコンテナ層に残り、recreate で焼き込み版に戻る (そのときまたここで最新化する)。
-# オフライン等で失敗しても焼き込み版で起動できるため警告に留める。
+# Update Claude Code to latest. The result stays in the container layer and recreate reverts to the baked-in version (updated here again then).
+# Even if it fails (offline etc.) it can start with the baked-in version, so only warn.
 if claude update >/dev/null 2>&1; then
   echo "claude: updated to $(claude --version | awk '{print $1}')"
 else
   echo "warn: claude: update failed (offline?); using $(claude --version | awk '{print $1}')" >&2
 fi
 
-# ~/.claude の初期化。
-# - claude モジュール有効: ~/.claude はホストの rw bind。~/.claude.json は single-file bind だと
-#   atomic write が EXDEV で失敗するため、ro で渡された初期値をコンテナローカルへコピーする
-# - 無効: ~/.claude は全ワークスペース共有の空の volume (所有者はイメージから引き継がれ、postCreate-root.sh が
-#   確認済み)。中身は Claude Code に任せる
+# Initialize ~/.claude.
+# - claude module enabled: ~/.claude is a rw bind of the host's. With a single-file bind, ~/.claude.json's
+#   atomic write fails with EXDEV, so copy the initial value passed ro into the container-local file
+# - disabled: ~/.claude is an empty volume shared by all workspaces (owner is inherited from the image; postCreate-root.sh
+#   has checked it). Its contents are left to Claude Code
 if has_cred claude; then
   cp "${HOME}/.claude.json.host" "${HOME}/.claude.json"
   echo "~/.claude: shared with host"
@@ -32,17 +32,17 @@ else
   echo "~/.claude: on volume dcc-claude-home (claude module off)"
 fi
 
-# ワークスペースを trust 済みにする。~/.claude.json はコンテナローカルなので、承認しても recreate で消えて
-# 毎回確認が出る。コンテナ自体を境界とみなし、確認は省く (docs/claude-code.md)
+# Mark the workspace as trusted. ~/.claude.json is container-local, so an approval is lost on recreate and
+# the prompt appears every time. The container itself is treated as the boundary, so skip the prompt (docs/claude-code.md)
 claude_json="${HOME}/.claude.json"
 [ -s "${claude_json}" ] || echo '{}' >"${claude_json}"
 jq --arg ws "${PWD}" '.projects[$ws].hasTrustDialogAccepted = true' "${claude_json}" >"${claude_json}.tmp"
 mv "${claude_json}.tmp" "${claude_json}"
 echo "claude: ${PWD} trusted"
 
-# ~/.codex も同じ (有効: ホストの rw bind、無効: 全ワークスペース共有の空の volume)。~/.codex には
-# ~/.claude.json に当たる単独ファイルが無いのでコピーは要らない。Codex の実体は /opt/codex (イメージ) にあり、
-# claude と違ってここでは更新しない (更新はイメージの rebuild)
+# Same for ~/.codex (enabled: rw bind of the host's, disabled: empty volume shared by all workspaces). ~/.codex has
+# no standalone file like ~/.claude.json, so no copy is needed. The Codex binary lives in /opt/codex (image), and
+# unlike claude it is not updated here (update by rebuilding the image)
 if has_cred codex; then
   echo "~/.codex: shared with host"
 else
@@ -50,8 +50,8 @@ else
   echo "~/.codex: on volume dcc-codex-home (codex module off)"
 fi
 
-# gpg モジュール有効時: 検証用に公開鍵と ownertrust をコンテナユーザーの keyring へ import する
-# (署名は postCreate-root.sh が登録した wrapper 経由で gpg-signer sidecar に委譲される)
+# When the gpg module is enabled: import the public key and ownertrust into the container user's keyring for verification
+# (signing is delegated to the gpg-signer sidecar via the wrapper postCreate-root.sh registered)
 setup_gnupg() {
   local export_dir="${HOME}/.gnupg-host"
 

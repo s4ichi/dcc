@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# sidecar 内で実行し、署名鍵のパスフレーズを gpg-agent にキャッシュする (ホストの warm.sh が docker exec -it で呼ぶ)。
-# キャッシュ済みなら無音で終了し、未キャッシュなら pinentry-curses が一度だけ出る。
-# 成功時は何も出さない (dcc が結果を 1 行にする)。できない場合は理由を出して失敗する。
+# Run inside the sidecar to cache the signing key's passphrase in gpg-agent (the host's warm.sh calls it with docker exec -it).
+# Exits silently if already cached; otherwise pinentry-curses appears once.
+# Prints nothing on success (dcc reports the result in one line). If it cannot, prints the reason and fails.
 set -euo pipefail
 
 key="$(cat /run/signing-key 2>/dev/null || true)"
@@ -15,7 +15,7 @@ if ! gpg --list-secret-keys "$key" >/dev/null 2>&1; then
   exit 1
 fi
 
-# TTY が無いと GPG_TTY="not a tty" が agent に渡り pinentry が紛らわしいエラーで失敗するため、先に止める
+# Without a TTY, GPG_TTY="not a tty" reaches the agent and pinentry fails with a confusing error, so stop early
 if ! GPG_TTY="$(tty)"; then
   echo "gpg-warm: no TTY; cannot prompt for passphrase. run from an interactive terminal" >&2
   exit 1

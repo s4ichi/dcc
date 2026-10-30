@@ -1,73 +1,73 @@
-# Docker（rootless sidecar）
+# Docker (rootless sidecar)
 
-常時マウント（モジュール選択に関係なく渡る）。本体コンテナに dockerd は無く、compose の `docker` サービス（`docker:dind-rootless`）が dockerd を提供する。
+Always mounted (passed regardless of module selection). The agent container has no dockerd; the compose `docker` service (`docker:dind-rootless`) provides dockerd.
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| ホストの Docker デーモン（`/var/run/docker.sock`） | ホスト | これを渡すと `docker run -v /:/host` でホストの root 相当になる |
-| 本体コンテナにマウントした認証情報（`~/.claude`、各モジュール） | 本体 | inner container から見えてはいけない |
-| ホストのファイル全般 | ホスト | inner container が bind できる範囲を限定したい |
+| The host's Docker daemon (`/var/run/docker.sock`) | host | Passing it makes `docker run -v /:/host` equivalent to root on the host |
+| Credentials mounted into the agent container (`~/.claude`, each module) | agent container | Must not be visible from inner containers |
+| Host files in general | host | We want to limit what inner containers can bind |
 
-## 境界
+## Boundary
 
-| 軸 | この設計 |
+| Axis | This design |
 |---|---|
-| できること | 本体は「sidecar の dockerd に対して任意の Docker 操作」ができる。`--privileged` や `-v /:/host` も通るが、その `/` は sidecar のルートで、権限は sidecar 内の uid 1000 止まり |
-| 届く範囲 | inner container から見えるホストのファイルは**ワークスペースだけ**（sidecar に bind しているのがそれだけ）。本体の `~/.claude` や各モジュールのマウントは sidecar に無い。inner container から親 netns の `127.0.0.1` には届かない |
-| 鍵の渡し方 | この境界では鍵を渡さない。TLS クライアント証明書は sidecar が生成し、本体に ro で渡す（dockerd への接続のためだけ） |
+| What it can do | The agent container can perform "any Docker operation against the sidecar's dockerd". `--privileged` and `-v /:/host` also go through, but that `/` is the sidecar's root, and privileges stop at uid 1000 inside the sidecar |
+| Reach | The only host files visible from inner containers are **the workspace** (the only thing bound into the sidecar). The agent container's `~/.claude` and module mounts are not in the sidecar. Inner containers cannot reach the parent netns's `127.0.0.1` |
+| How the key is passed | No key is passed at this boundary. The sidecar generates the TLS client certificate and passes it ro to the agent container (solely for connecting to dockerd) |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナが乗っ取られた場合:
+If the agent container is taken over:
 
-- sidecar の dockerd を自由に使える。イメージの pull、コンテナの実行、sidecar の `docker-data` volume の読み書きができる
-- ワークスペースは inner container からも読み書きできる（本体からできることと同じ）
-- ホストの Docker、ホストのファイル（ワークスペース以外）、本体にマウントした認証情報には到達できない
-- sidecar は `privileged: true` だが秘密情報を一切マウントしていないので、sidecar を乗っ取っても漏らすものが無い
+- The sidecar's dockerd can be used freely: pulling images, running containers, and reading and writing the sidecar's `docker-data` volume
+- The workspace can be read and written from inner containers too (the same as what the agent container can do)
+- The host's Docker, host files (other than the workspace), and credentials mounted into the agent container are unreachable
+- The sidecar is `privileged: true` but has no secrets mounted at all, so taking over the sidecar leaks nothing
 
-## なぜこの構成か
+## Why this design
 
-- **ホストの docker.sock を渡さない**: 渡した時点でホストの root 相当になる
-- **rootless dind を sidecar に分離する**: dockerd を本体に同居させると本体に `privileged` が要り、Claude が動く場所に特権と認証情報が同居する。sidecar なら特権を持つコンテナには秘密情報が無く、秘密情報を持つコンテナには特権が無い
-- **sidecar に `privileged: true` が必要な理由**: `docker:dind-rootless` イメージでも seccomp / AppArmor / `/proc`・`/sys` の mount mask を外すため。rootless であることと特権が必要なことは別
-- **ワークスペースを同一パスで両方に bind する**: `docker run -v /workspaces/<name>/sub:/x` の bind を解決するのは sidecar の dockerd。本体と同じパスに無いと inner container にワークスペースを渡せない。ワークスペース外のホストパスは sidecar に無いので、inner container にマウントしようとすると空ディレクトリが作られるだけ
-- **netns を共有する**: sidecar 上で `-p 3000:80` したポートに本体から `localhost:3000` で届く。ホストには公開しない
-- **healthcheck を置かない**: netns を join するには sidecar が起動していれば十分で、dockerd の準備完了を待つ必要は無い。常時 `docker info` を回すコストの方が大きい
+- **Do not pass the host's docker.sock**: passing it is equivalent to root on the host
+- **Isolate rootless dind in a sidecar**: co-locating dockerd in the agent container would require `privileged` for the agent container, putting privileges and credentials together where Claude runs. With a sidecar, the container with privileges has no secrets, and the container with secrets has no privileges
+- **Why the sidecar needs `privileged: true`**: even the `docker:dind-rootless` image needs seccomp / AppArmor / the `/proc` and `/sys` mount masks removed. Being rootless and needing privileges are separate matters
+- **Bind the workspace to both at the same path**: the bind in `docker run -v /workspaces/<name>/sub:/x` is resolved by the sidecar's dockerd. Unless it is at the same path as in the agent container, the workspace cannot be passed to inner containers. Host paths outside the workspace do not exist in the sidecar, so trying to mount them into an inner container just creates an empty directory
+- **Share the netns**: a port published with `-p 3000:80` on the sidecar is reachable from the agent container at `localhost:3000`. It is not published to the host
+- **No healthcheck**: joining the netns only requires the sidecar to be started; there is no need to wait for dockerd to be ready. Constantly running `docker info` would cost more
 
-## 仕組み
+## How it works
 
 ```
- agent (本体, 非特権)                         docker (sidecar, privileged)
+ agent (agent container, unprivileged)        docker (sidecar, privileged)
  ──────────────────────                       ────────────────────────────
  DOCKER_HOST=tcp://docker:2376  ───TLS───►    dockerd --host tcp://0.0.0.0:2376 (rootless, uid 1000)
  DOCKER_TLS_VERIFY=1                          DOCKER_TLS_CERTDIR=/certs
- DOCKER_CERT_PATH=/certs/client               /certs/{ca,server,client}/ を entrypoint が生成
+ DOCKER_CERT_PATH=/certs/client               /certs/{ca,server,client}/ generated by the entrypoint
  /certs (volume docker-certs, ro)  ◄────────  /certs (volume docker-certs, rw)
- /workspaces/<name> (bind)                    /workspaces/<name> (bind, 同一パス)
+ /workspaces/<name> (bind)                    /workspaces/<name> (bind, same path)
                                               /home/rootless/.local/share/docker (volume docker-data)
- network_mode: service:docker ◄────────────── netns の持ち主
+ network_mode: service:docker ◄────────────── owner of the netns
 ```
 
-| | 本体 | sidecar | inner container |
+| | agent container | sidecar | inner container |
 |---|---|---|---|
-| `privileged` | なし | **あり** | 指定可能だが userns 内 |
-| 実行 uid | 1000 (`agent`) | 1000 (`rootless`, dockerd) | userns 内 root = 外側の uid 1000+ |
-| ホストの秘密情報 | あり | **なし** | なし |
-| ホストのファイル | ワークスペース + 各種 bind | ワークスペースのみ | ワークスペース（`-v` で明示した範囲） |
+| `privileged` | no | **yes** | can be specified, but inside the userns |
+| Running uid | 1000 (`agent`) | 1000 (`rootless`, dockerd) | root inside the userns = uid 1000+ outside |
+| Host secrets | yes | **no** | no |
+| Host files | workspace + various binds | workspace only | workspace (the range given explicitly with `-v`) |
 
-- **TLS 証明書**: `docker:dind` 系の entrypoint は `DOCKER_TLS_CERTDIR` が設定されていると初回起動時に CA・サーバー・クライアント証明書を `/certs` に生成する。サーバー証明書の SAN には `docker`（サービス名）、`localhost`、`127.0.0.1` が含まれるので**サービス名 `docker` は変更しない**。`/certs/client/key.pem` は 0644 で生成され、本体のコンテナユーザー（`agent`）からも読める。証明書は volume に永続化され `dcc clear --volumes` まで残る
-- **起動順**: 本体は `depends_on: docker: condition: service_started`。起動直後の数秒は `docker` コマンドが失敗しうる（postCreate は docker を使わない）
-- **ネットワーク**: 本体側に `ports` / `hostname` / `dns` / `extra_hosts` は書けない。`sysctls: net.ipv4.ip_unprivileged_port_start=0` により uid 1000 の port driver が 1024 未満のポートも bind できる。inner container からは親 netns の `127.0.0.1` に届かない（rootlesskit `--disable-host-loopback`）
-- **永続化**: `<project>_docker-certs`（`/certs`）と `<project>_docker-data`（イメージ・コンテナ・volume・buildkit キャッシュ）。プロジェクト名でプレフィックスされ、ワークスペースごとに独立する。ホストの Docker のイメージとは共有されない
+- **TLS certificates**: when `DOCKER_TLS_CERTDIR` is set, the entrypoint of the `docker:dind` family generates CA, server, and client certificates in `/certs` on first start. The server certificate's SAN includes `docker` (the service name), `localhost`, and `127.0.0.1`, so **do not change the service name `docker`**. `/certs/client/key.pem` is generated with mode 0644 and is readable by the agent container's container user (`agent`). The certificates persist in a volume until `dcc clear --volumes`
+- **Startup order**: the agent container has `depends_on: docker: condition: service_started`. For a few seconds right after startup, `docker` commands may fail (postCreate does not use docker)
+- **Network**: `ports` / `hostname` / `dns` / `extra_hosts` cannot be written on the agent container side. `sysctls: net.ipv4.ip_unprivileged_port_start=0` lets the uid 1000 port driver bind ports below 1024 as well. Inner containers cannot reach the parent netns's `127.0.0.1` (rootlesskit `--disable-host-loopback`)
+- **Persistence**: `<project>_docker-certs` (`/certs`) and `<project>_docker-data` (images, containers, volumes, buildkit cache). They are prefixed with the project name and independent per workspace. Not shared with the host Docker's images
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- **sidecar だけを再起動しない。** 本体の netns は sidecar の sandbox に紐づいており、sidecar が再作成されると本体が消えた netns に取り残される。`dcc recreate` で復旧する。`dcc stop` → `dcc up` は安全
-- rootless の制約: systemd が無いため cgroup v2 の delegation ができず、`--memory` / `--cpus` / `--pids-limit` は無視される（警告のみ）。inner container の `--privileged` / `--cap-add SYS_ADMIN` は userns 内の CAP でしかなく、デバイス・カーネルパラメータには触れない。overlay2 は fuse-overlayfs または userns 対応の kernel overlay で動き、パフォーマンスはホストの Docker より落ちる
-- inner container → 本体のサービスへ `host.docker.internal` 相当では繋げない。Docker network 経由で本体と同じ netns の IP を使うか、本体側で `0.0.0.0` を listen して sidecar の IP で繋ぐ
-- イメージは `docker:<ver>-dind-rootless@sha256:<index digest>` で固定している（`template.jsonnet` の既定値。唯一の privileged
-  コンテナなので、floating タグで知らないうちに中身が変わらないようにする）。上げるときは
-  `docker buildx imagetools inspect docker:<ver>-dind-rootless` で index の digest を取り、`template.jsonnet` / `.env.example` /
-  [customization.md](customization.md) の既定値を揃えて `make generate`。利用者が変えるなら `DCC_DIND_IMAGE`。変更後は `dcc recreate`
+- **Do not restart only the sidecar.** The agent container's netns is tied to the sidecar's sandbox, and if the sidecar is recreated, the agent container is left behind in a netns that no longer exists. Recover with `dcc recreate`. `dcc stop` → `dcc up` is safe
+- Rootless constraints: without systemd, cgroup v2 delegation is unavailable, so `--memory` / `--cpus` / `--pids-limit` are ignored (warning only). `--privileged` / `--cap-add SYS_ADMIN` in inner containers are only CAPs inside the userns and cannot touch devices or kernel parameters. overlay2 runs on fuse-overlayfs or userns-aware kernel overlay, and performance is lower than the host's Docker
+- Inner containers cannot connect to services in the agent container via something like `host.docker.internal`. Either use the IP of the agent container's netns over a Docker network, or listen on `0.0.0.0` in the agent container and connect via the sidecar's IP
+- The image is pinned as `docker:<ver>-dind-rootless@sha256:<index digest>` (the default in `template.jsonnet`; since it is the only privileged
+  container, this keeps its contents from changing unnoticed under a floating tag). To bump it,
+  get the index digest with `docker buildx imagetools inspect docker:<ver>-dind-rootless`, align the defaults in `template.jsonnet` / `.env.example` /
+  [customization.md](customization.md), and run `make generate`. Users can change it with `DCC_DIND_IMAGE`. After a change, run `dcc recreate`

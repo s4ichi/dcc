@@ -1,160 +1,159 @@
-# Codex CLI の設定・状態
+# Codex CLI settings and state
 
-**モジュール名: `codex`** — `dcc --creds codex` を指定したときだけホストの `~/.codex` を共有する（[credentials.md](credentials.md)）。
-Codex CLI 自体は本体イメージに常に入っており、モジュールを外しても `dcc --agent codex` で動く。その場合はホストの設定・履歴・認証とは
-無関係な空の環境になる（下記）。Claude Code の同じ話は [claude-code.md](claude-code.md)。
+**Module name: `codex`** — the host's `~/.codex` is shared only when `dcc --creds codex` is given ([credentials.md](credentials.md)).
+The Codex CLI itself is always in the agent image and runs with `dcc --agent codex` even without the module. In that case it is an empty environment
+unrelated to the host's settings, history, and authentication (see below). The same topic for Claude Code is in [claude-code.md](claude-code.md).
 
-このページの Codex の仕様に関する記述は Codex CLI 0.154.0 時点の公式ドキュメントとソースに基づく。
-**実機で未確認の点は「未検証の前提」にまとめてある。**
+Statements about Codex's behavior on this page are based on the official documentation and source as of Codex CLI 0.154.0.
+**Points not yet confirmed on a real machine are collected under "Unverified assumptions".**
 
-## 守るもの
+## What it protects
 
-| 実体 | 所在 | 性質 |
+| Asset | Location | Nature |
 |---|---|---|
-| `~/.codex/auth.json` | ホスト / コンテナ | ChatGPT ログインの token（refresh token を含む）または API key。**平文**。保存先の既定は OS を問わずこのファイルで、macOS でも Keychain ではない（`cli_auth_credentials_store = "file"` が既定） |
-| `~/.codex/config.toml` | ホスト | モデル、sandbox / 承認の設定、MCP サーバー、`notify`。**書き換えられると、ホストで Codex を動かしたときに実行されるコマンドが変わる** |
-| `~/.codex/hooks.json`、`rules/` | ホスト | ライフサイクルフックと、sandbox の外で実行を許すコマンドの規則 |
-| `~/.codex/.credentials.json` | ホスト / コンテナ | MCP サーバーの OAuth token（keyring が使えないときの保存先。コンテナには keyring が無い） |
-| `~/.codex/sessions/`、`history.jsonl` | ホスト | セッション履歴（会話内容） |
-| `~/.codex/AGENTS.md` | ホスト | 全プロジェクト共通の指示 |
+| `~/.codex/auth.json` | host / container | ChatGPT login token (including a refresh token) or API key. **Plaintext**. The default store is this file regardless of OS; even on macOS it is not the Keychain (`cli_auth_credentials_store = "file"` is the default) |
+| `~/.codex/config.toml` | host | Model, sandbox / approval settings, MCP servers, `notify`. **If rewritten, the commands executed when Codex runs on the host change** |
+| `~/.codex/hooks.json`, `rules/` | host | Lifecycle hooks, and rules for commands allowed to run outside the sandbox |
+| `~/.codex/.credentials.json` | host / container | OAuth tokens for MCP servers (the store used when no keyring is available; the container has no keyring) |
+| `~/.codex/sessions/`, `history.jsonl` | host | Session history (conversation contents) |
+| `~/.codex/AGENTS.md` | host | Instructions common to all projects |
 
-## 境界
+## Boundary
 
-| 軸 | モジュール有効（ホストと共有） | モジュール無効（空の volume） |
+| Axis | Module enabled (shared with the host) | Module disabled (empty volume) |
 |---|---|---|
-| できること | コンテナ内の Codex はホストと同じ設定・履歴・認証で動き、それらを**書き換えられる** | Codex の既定設定で動く。ホストのものは何も見えず、何も変えられない |
-| 届く範囲 | `~/.codex` はホストと **rw で共有**（ディレクトリ単位） | ホストの `~/.codex` には到達しない。`~/.codex` は全ワークスペース共有の volume |
-| 鍵の渡し方 | **ホストの token をそのまま共有する**（`auth.json` は平文のファイル）。コンテナ内でログインする必要は無い | コンテナ内で認証し、結果は volume に残る。ホストには一切戻らない |
+| What it can do | Codex in the container runs with the same settings, history, and authentication as the host, and **can rewrite them** | Runs with Codex's default settings. Sees nothing of the host's and can change nothing |
+| Reach | `~/.codex` is **shared rw** with the host (as a directory) | Does not reach the host's `~/.codex`. `~/.codex` is a volume shared across all workspaces |
+| How the key is passed | **The host's token is shared as is** (`auth.json` is a plaintext file). No login is needed inside the container | Authenticated inside the container; the result stays in the volume. Nothing flows back to the host |
 
-## 侵害時に漏れるもの
+## What leaks on compromise
 
-本体コンテナが乗っ取られた場合:
+If the agent container is taken over:
 
-- **モジュール有効**: `~/.codex` 配下はすべて読み書きできる。[claude-code.md](claude-code.md) の `claude` モジュールと同じ類の穴だが、**一段重い**:
-  - **ホストの Codex の token が持ち出せる。** Claude Code（macOS）の token は Keychain にあってコンテナに渡らないが、Codex の `auth.json` は
-    既定で平文のファイルなので、共有した時点でホストのログインそのものがコンテナに渡る
-  - `config.toml` の `notify`、`hooks.json`、`[mcp_servers.*]` の `command` を書き換えられる。いずれも Codex が外部コマンドを起動する設定なので、
-    **次にホストで Codex を起動したとき、ホスト上で攻撃者のコマンドが走る**（コンテナからホストへ抜ける経路になる）
-  - sandbox / 承認の設定（`sandbox_mode`、`approval_policy`、`rules/`）を緩められる。ホストの Codex にも効く
-  - セッション履歴（会話内容）を読める
-- **モジュール無効**: 持ち出せるのは volume 内の token（コンテナで取得したもの）とコンテナ側の履歴だけ。ホストには何も無く、ホストの設定も変えられない
-- どちらでも、Codex 自身の sandbox は既定で外してあるので（下記）、Codex が実行するコマンドは本体コンテナの権限でそのまま動く。
-  被害の上限を決めるのはコンテナの外枠（[boundaries.md](boundaries.md)）
+- **Module enabled**: everything under `~/.codex` can be read and written. The same kind of hole as the `claude` module in [claude-code.md](claude-code.md), but **one step worse**:
+  - **The host Codex's token can be exfiltrated.** Claude Code's token (macOS) lives in the Keychain and is not passed to the container, but Codex's `auth.json` is
+    a plaintext file by default, so sharing it hands the host's login itself to the container
+  - `notify` in `config.toml`, `hooks.json`, and `command` in `[mcp_servers.*]` can be rewritten. All of these are settings with which Codex launches external commands, so
+    **the next time Codex starts on the host, the attacker's command runs on the host** (a path out of the container to the host)
+  - Sandbox / approval settings (`sandbox_mode`, `approval_policy`, `rules/`) can be loosened. This affects the host's Codex too
+  - Session history (conversation contents) can be read
+- **Module disabled**: only the tokens in the volume (those obtained in the container) and the container-side history can be exfiltrated. Nothing of the host's is there, and the host's settings cannot be changed
+- In either case, Codex's own sandbox is disabled by default (see below), so commands Codex runs execute with the agent container's privileges as is.
+  The upper bound of damage is set by the container's outer frame ([boundaries.md](boundaries.md))
 
-## なぜこの構成か
+## Why this design
 
-- **`~/.claude` と対称にする**: 既定は共有しない側に倒し、共有はモジュールで選ぶ。共有するかどうかは「ホストの Codex の認証と設定をコンテナから
-  読み書きされてよいか」の判断で、ワークスペースごとに変えられる。上のとおり共有の代償は `claude` モジュールより大きいので、必要なワークスペースでだけ有効にする
-- **ディレクトリ単位で渡し、ファイル単位では渡さない**: Codex は `config.toml` を一時ファイル + `rename` で書き換える（プロジェクトの trust 判定、`/model`、
-  `codex mcp add` などで日常的に起きる）。single-file bind はマウントポイントなので `rename` が失敗する。`auth.json` だけを渡す、`config.toml` だけを ro で渡す、
-  といった細分化はしない
-- **共有しないときは空の固定名 volume**: コンテナローカルだと `dcc recreate` で token が消えて毎回ログインになる。compose の volume はプロジェクト名で
-  プレフィックスされるのでワークスペースごとにログインが要る。固定名（`dcc-codex-home`）の external volume にすると全ワークスペースで 1 回のログインで済み、
-  `dcc clear --volumes` でも消えない
-- **Codex 自身の sandbox を既定で外す**: Codex の Linux sandbox は bubblewrap で、非特権の user namespace の作成が要る。非特権のコンテナの中ではこれが
-  許可されないことが多い。加えて、既定の `workspace-write` は実行するコマンドのネットワークを切り離すので、TCP で繋ぐ Docker sidecar
-  （`DOCKER_HOST=tcp://docker:2376`）にも、`aws` / `gpg` のモジュール sidecar（`127.0.0.1`）にも届かなくなる。このリポジトリでは
-  **コンテナを sandbox と位置づけ**、`dcc` が `-c sandbox_mode=danger-full-access` を渡す。この設定では Codex は bubblewrap を使わない
-- **承認ポリシーには触らない**: いつ確認を求めるかは利用者の好みで、`config.toml` か引数で決めればよい。`dcc` が外すのは「コンテナ内では動かないか、
-  動いても sidecar を使えなくするもの」だけ
-- **`--sandbox` ではなく `-c` で渡す**: `-c key=value` は `config.toml` の上書きで、専用の引数より優先度が低い。利用者が
-  `dcc exec --agent codex -- --sandbox workspace-write` のように重ねても、同じ引数が二重になることを避けられる
-- **公式の install.sh を使わず、イメージに焼き込む**: install.sh は shell profile を書き換え、本体を `~/.codex/packages/` 配下に置く。`~/.codex` は
-  volume / ホストの bind になるので、実体をそこに置くとイメージと食い違う（[claude-code.md](claude-code.md) で Claude Code の実体を volume にしないのと同じ理由）。
-  GitHub Releases（`CODEX_VERSION` のタグ）の `codex-package-<target>.tar.gz`（`codex` に加えて `bwrap` と `rg` を同梱）を `/opt/codex` に展開し、同じリリースの
-  `codex-package_SHA256SUMS` で検証する。Node.js は要らない
-- **起動時の更新チェックを切る**: 実体は root 所有の `/opt/codex` にあり、コンテナ内からの自己更新は想定しない。更新はイメージの rebuild で行う
+- **Symmetric with `~/.claude`**: default to not sharing; sharing is chosen via the module. Whether to share is a judgment of "is it acceptable for the container to
+  read and write the host Codex's authentication and settings", and it can differ per workspace. As shown above, the cost of sharing is higher than with the `claude` module, so enable it only in workspaces that need it
+- **Pass as a directory, not as files**: Codex rewrites `config.toml` via a temp file + `rename` (this happens routinely: project trust decisions, `/model`,
+  `codex mcp add`, etc.). A single-file bind is a mount point, so `rename` fails. No finer-grained splitting such as passing only `auth.json` or passing only `config.toml` ro
+- **Empty fixed-name volume when not shared**: if container-local, `dcc recreate` would erase the token and require logging in each time. compose volumes are
+  prefixed with the project name, so a login would be needed per workspace. A fixed-name (`dcc-codex-home`) external volume means one login covers all workspaces,
+  and `dcc clear --volumes` does not delete it
+- **Disable Codex's own sandbox by default**: Codex's Linux sandbox is bubblewrap, which requires creating an unprivileged user namespace. Inside an unprivileged container this
+  is often not allowed. In addition, the default `workspace-write` isolates the network of executed commands, so they can reach neither the Docker sidecar over TCP
+  (`DOCKER_HOST=tcp://docker:2376`) nor the `aws` / `gpg` module sidecars (`127.0.0.1`). This repository
+  **treats the container as the sandbox**, and `dcc` passes `-c sandbox_mode=danger-full-access`. With this setting Codex does not use bubblewrap
+- **Do not touch the approval policy**: when to ask for confirmation is the user's preference, to be decided in `config.toml` or by arguments. `dcc` only disables "things that
+  do not work inside the container, or that would make the sidecars unusable if they did"
+- **Pass via `-c`, not `--sandbox`**: `-c key=value` overrides `config.toml` and has lower priority than the dedicated argument. Even if the user stacks
+  something like `dcc exec --agent codex -- --sandbox workspace-write`, the same argument is not duplicated
+- **Bake it into the image instead of using the official install.sh**: install.sh rewrites the shell profile and puts the binary under `~/.codex/packages/`. `~/.codex`
+  becomes a volume / host bind, so placing the binary there would diverge from the image (the same reason Claude Code's binary is not put in a volume in [claude-code.md](claude-code.md)).
+  `codex-package-<target>.tar.gz` (bundling `bwrap` and `rg` in addition to `codex`) from GitHub Releases (tag `CODEX_VERSION`) is extracted to `/opt/codex` and verified with the same release's
+  `codex-package_SHA256SUMS`. Node.js is not needed
+- **Disable the update check at startup**: the binary lives in root-owned `/opt/codex`, and self-update from inside the container is not intended. Updates are done by rebuilding the image
 
-## 仕組み
+## How it works
 
-### モジュール有効（`capabilities/codex/compose.yml`）
+### Module enabled (`capabilities/codex/compose.yml`)
 
-| ホスト側 | コンテナ側 | モード | 内容 |
+| Host side | Container side | Mode | Contents |
 |---|---|---|---|
-| `~/.codex/`（`DCC_CODEX_DIR`） | `/home/agent/.codex/` | **rw** | 設定、認証情報、セッション履歴、MCP の token |
+| `~/.codex/` (`DCC_CODEX_DIR`) | `/home/agent/.codex/` | **rw** | Settings, credentials, session history, MCP tokens |
 
-base の volume と同じ target `/home/agent/.codex` を bind で上書きする（compose の同一 target は後勝ち）。`initialize.sh codex` がホスト側の
-ディレクトリの存在を事前に警告する。
+A bind overrides the base volume at the same target `/home/agent/.codex` (for the same target, the later compose file wins). `initialize.sh codex` warns in advance if the host-side
+directory is missing.
 
-### モジュール無効（base）
+### Module disabled (base)
 
-| ホスト側 | コンテナ側 | モード | 内容 |
+| Host side | Container side | Mode | Contents |
 |---|---|---|---|
-| volume `dcc-codex-home`（`DCC_CODEX_HOME_VOLUME`。external、全ワークスペース共有） | `/home/agent/.codex/` | rw | 空で始まる。認証情報と履歴はここに残る |
+| volume `dcc-codex-home` (`DCC_CODEX_HOME_VOLUME`; external, shared across all workspaces) | `/home/agent/.codex/` | rw | Starts empty. Credentials and history stay here |
 
-`dcc up` が volume を無ければ作る（external なので compose は作らない。devcontainer からは `docker volume create dcc-codex-home`）。
-base の compose が参照するので、**Codex を使わない場合もこの volume は作られる**（空のまま）。所有者はイメージの `~/.codex`（コンテナユーザー所有）を初回 mount で引き継ぎ、postCreate はそれを確認して `chmod 700` するだけ。
+`dcc up` creates the volume if missing (it is external, so compose does not create it; from devcontainer, `docker volume create dcc-codex-home`).
+Since the base compose references it, **this volume is created even if you do not use Codex** (it stays empty). Ownership is inherited from the image's `~/.codex` (owned by the container user) on first mount, and postCreate only checks it and runs `chmod 700`.
 
-### 起動と既定引数
+### Launch and default arguments
 
 ```bash
-dcc --agent codex                       # up + codex を起動
-dcc exec --agent codex -- resume --all  # `--` 以降は codex に渡る
-export DCC_AGENT=codex                  # 既定のエージェントを codex にする
+dcc --agent codex                       # up + launch codex
+dcc exec --agent codex -- resume --all  # everything after `--` goes to codex
+export DCC_AGENT=codex                  # make codex the default agent
 ```
 
-`claude` と `codex` は同じコンテナに入っており、どちらを起動するかは呼び出しごとに選ぶ。`dcc` は起動時に、利用者の引数の前へ次を足す。
+`claude` and `codex` live in the same container, and which one to launch is chosen per invocation. At launch, `dcc` prepends the following to the user's arguments.
 
-| 変数 | 既定値 | 内容 |
+| Variable | Default | Contents |
 |---|---|---|
-| `DCC_CODEX_ARGS` | `-c sandbox_mode=danger-full-access -c check_for_update_on_startup=false` | `codex` の前置引数 |
-| `DCC_CLAUDE_ARGS` | 空 | `claude` の前置引数 |
+| `DCC_CODEX_ARGS` | `-c sandbox_mode=danger-full-access -c check_for_update_on_startup=false` | Leading arguments for `codex` |
+| `DCC_CLAUDE_ARGS` | empty | Leading arguments for `claude` |
 
-値は空白で分割されるだけで、引用は解釈されない。**空文字を設定すると何も足さない**（`DCC_CODEX_ARGS=`）。Codex の sandbox を使いたい場合は
-空にしたうえで、コンテナで bubblewrap が動くこと、`[sandbox_workspace_write] network_access = true` にしないと sidecar に届かないことを確認する。
+Values are only split on whitespace; quoting is not interpreted. **Setting an empty string adds nothing** (`DCC_CODEX_ARGS=`). To use Codex's sandbox,
+set it empty, then confirm that bubblewrap works in the container and that sidecars are unreachable unless `[sandbox_workspace_write] network_access = true` is set.
 
-### ログイン（モジュール無効のとき）
+### Login (when the module is disabled)
 
-ブラウザでのログインは、Codex が**コンテナ内の** `127.0.0.1:1455` で callback を待つ。本体コンテナはポートをホストに公開していないので
-（[docker.md](docker.md)）、ホストのブラウザからは届かない。次のどちらかを使う。
+For browser login, Codex waits for the callback on `127.0.0.1:1455` **inside the container**. The agent container does not publish ports to the host
+([docker.md](docker.md)), so the host's browser cannot reach it. Use one of the following.
 
-- **device code**: コンテナ内で `codex login --device-auth`。表示された URL をホストのブラウザで開いてコードを入力する。beta の機能で、
-  ChatGPT 側（個人ならセキュリティ設定、ワークスペースなら管理者の権限設定）で device code ログインを有効にしておく必要がある
-- **API key**: コンテナ内で `printenv OPENAI_API_KEY | codex login --with-api-key`（key は stdin から読まれる）
+- **device code**: run `codex login --device-auth` in the container. Open the displayed URL in the host's browser and enter the code. This is a beta feature, and
+  device code login must be enabled on the ChatGPT side (security settings for individuals, admin permission settings for workspaces)
+- **API key**: run `printenv OPENAI_API_KEY | codex login --with-api-key` in the container (the key is read from stdin)
 
-どちらも結果は `~/.codex/auth.json`（volume）に残り、`dcc recreate` と全ワークスペースを跨いで使い回される。確認は `codex login status`、消すのは `codex logout`。
+Either way the result stays in `~/.codex/auth.json` (the volume) and is reused across `dcc recreate` and all workspaces. Check with `codex login status`; remove with `codex logout`.
 
-モジュール有効のときはホストの `auth.json` がそのまま使われるので、ログインは要らない。token の更新（期限が近いと Codex が refresh して `auth.json` に
-書き戻す）はホストとコンテナで同じファイルに対して行われる。コピーではないので「片方の更新でもう片方が無効になる」問題は無いが、
-ホストとコンテナで同時に Codex を動かすと書き込みが競合しうる。
+When the module is enabled, the host's `auth.json` is used as is, so no login is needed. Token renewal (Codex refreshes when expiry is near and writes back to `auth.json`)
+operates on the same file for host and container. Since it is not a copy, there is no "an update on one side invalidates the other" problem, but
+running Codex on the host and in the container at the same time may cause write conflicts.
 
-### MCP サーバー
+### MCP servers
 
-設定は `config.toml` の `[mcp_servers.<name>]`、または `codex mcp add`。remote サーバーの OAuth は `codex mcp login <name> --no-browser` を使う
-（認可 URL を表示し、ブラウザでの認可後にリダイレクトされた URL を貼り付ける方式。callback のポートをホストに公開しなくてよい）。
-token は keyring の無いコンテナでは `~/.codex/.credentials.json` に平文で残る。stdio サーバーの実行コマンドが**コンテナ内**に必要なことは
-[mcp.md](mcp.md) の「stdio サーバー」と同じ。
+Configure with `[mcp_servers.<name>]` in `config.toml`, or `codex mcp add`. For OAuth of remote servers use `codex mcp login <name> --no-browser`
+(it shows the authorization URL, and after authorizing in the browser you paste the redirected URL; the callback port does not need to be published to the host).
+In a container without a keyring, the token stays in `~/.codex/.credentials.json` in plaintext. The requirement that a stdio server's command exist **inside the container** is
+the same as in "stdio servers" in [mcp.md](mcp.md).
 
-### 環境変数
+### Environment variables
 
-Codex は既定では親プロセスの環境変数をすべて、実行するコマンドに引き継ぐ（`shell_environment_policy.inherit = "all"`、名前に `KEY` / `SECRET` /
-`TOKEN` を含む変数の除外は既定で無効）。そのため compose が本体に設定する `DOCKER_HOST` / `DOCKER_CERT_PATH` / `DOCKER_TLS_VERIFY`、
-`gpg` モジュールの `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0`、`aws` モジュールの `AWS_CONTAINER_CREDENTIALS_FULL_URI` は
-Codex が実行する `docker` / `git` / `aws` からそのまま見える。`config.toml` で `inherit = "core"` にしたり `ignore_default_excludes = false` に
-したりするとこれらが落ちる（後者は `GIT_CONFIG_KEY_0` が `*KEY*` に一致する）ので、共有した `config.toml` でそうしている場合は注意する。
+By default Codex passes all of the parent process's environment variables to the commands it runs (`shell_environment_policy.inherit = "all"`; excluding variables whose names contain `KEY` / `SECRET` /
+`TOKEN` is disabled by default). Therefore `DOCKER_HOST` / `DOCKER_CERT_PATH` / `DOCKER_TLS_VERIFY` set by compose on the agent container,
+`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0` from the `gpg` module, and `AWS_CONTAINER_CREDENTIALS_FULL_URI` from the `aws` module are
+visible as is to the `docker` / `git` / `aws` that Codex runs. Setting `inherit = "core"` or `ignore_default_excludes = false` in `config.toml`
+drops them (with the latter, `GIT_CONFIG_KEY_0` matches `*KEY*`), so take care if your shared `config.toml` does that.
 
-## 未検証の前提
+## Unverified assumptions
 
-次は公式ドキュメントとソースからの推定で、**このリポジトリのイメージ上では実際に動かして確認していない。** `dcc build` のあと、ホストで確認する。
+The following are inferences from the official documentation and source and **have not actually been run and confirmed on this repository's image.** Confirm them on the host after `dcc build`.
 
-| 前提 | 確認方法 | 外れていた場合 |
+| Assumption | How to check | If it turns out wrong |
 |---|---|---|
-| `codex` が `-c key=value`（`--config`）を受け付け、`-c sandbox_mode=danger-full-access` で sandbox が外れる | `docker run --rm dcc:local codex --help` に `-c, --config` があること。`dcc --agent codex` で起動し `/status` の sandbox が `danger-full-access` であること | `DCC_CODEX_ARGS="--sandbox danger-full-access"` にする（`--sandbox` の存在はソースで確認済み。利用者が `--sandbox` を重ねると引数が重複しうる） |
-| 非特権コンテナでは bubblewrap が user namespace を作れない（sandbox を外す既定の根拠の 1 つ） | `docker run --rm dcc:local /opt/codex/codex-resources/bwrap --unshare-user true; echo $?` が非 0 で、`No permissions to create new namespace` の類が出ること | 動く環境なら Codex の sandbox を併用できる。ただし `workspace-write` がネットワークを切る点は変わらないので、既定を変える理由にはならない |
-| `codex-package-<target>.tar.gz` の中身が `bin/codex` / `codex-resources/` / `codex-path/` で、`codex-package_SHA256SUMS` が `sha256sum -c` の形式である | `dcc build` の Codex のレイヤが通ること（形式が違えば build がそこで失敗する） | `Dockerfile` の Layer 11 を実際のレイアウトに合わせる |
+| `codex` accepts `-c key=value` (`--config`), and `-c sandbox_mode=danger-full-access` disables the sandbox | `docker run --rm dcc:local codex --help` lists `-c, --config`. Launch with `dcc --agent codex` and `/status` shows the sandbox as `danger-full-access` | Set `DCC_CODEX_ARGS="--sandbox danger-full-access"` (the existence of `--sandbox` is confirmed in the source; if the user stacks `--sandbox`, arguments may be duplicated) |
+| In an unprivileged container bubblewrap cannot create a user namespace (one rationale for the default of disabling the sandbox) | `docker run --rm dcc:local /opt/codex/codex-resources/bwrap --unshare-user true; echo $?` is non-zero and prints something like `No permissions to create new namespace` | In an environment where it works, Codex's sandbox can be used alongside. However, `workspace-write` still cuts the network, so this is no reason to change the default |
+| `codex-package-<target>.tar.gz` contains `bin/codex` / `codex-resources/` / `codex-path/`, and `codex-package_SHA256SUMS` is in `sha256sum -c` format | The Codex layer of `dcc build` succeeds (if the format differs, the build fails there) | Adjust Layer 11 of the `Dockerfile` to the actual layout |
 
-## 制約・既知の穴
+## Constraints and known holes
 
-- **モジュール有効時は、ホストの Codex の token が平文でコンテナに渡り、ホストで実行されるコマンドの設定（`notify` / hooks / MCP）にコンテナ内から
-  書き込める。** 防ぎたいワークスペースでは無効にする
-- Codex 自身の sandbox は既定で外してある。Codex が実行するコマンドを止めるのは、承認ポリシー（利用者の設定）とコンテナの外枠だけ
-- グローバルな skills（`~/.agents/skills`）は `~/.codex` の外にあるので、モジュールを有効にしても渡らない。必要なら `local/compose.yml` で bind する
-  （[customization.md](customization.md)）
-- `codex resume` / `codex fork` は既定で作業ディレクトリが同じセッションだけを対象にする。ホストでは `/Users/<user>/src/foo`、コンテナでは
-  `/workspaces/foo` になるので、共有していても互いのセッションは既定の一覧に出ない（`--all` で出る）
-- プロジェクトを信頼するかの判定（trust）も `config.toml` にパスで記録される。コンテナのパスはホストと違うので、コンテナ側で改めて聞かれる
-- 版は `Dockerfile` の `CODEX_VERSION`（リリースのタグ）で固定している。更新はこの値を上げて `dcc build` → `dcc recreate`。
-  起動時の更新通知は既定引数で切ってある
-- `/opt/codex` は約 260 MB あり、Codex を使わない場合もイメージに含まれる
-- 複数の `dcc exec --agent codex` を同じコンテナで同時に動かすと、Codex の共有バックグラウンドサーバーを共有する。切り離すなら `--no-daemon`
-- Codex は既定で利用状況のメトリクスを送信する。止めるなら `config.toml` に `[analytics] enabled = false`
+- **When the module is enabled, the host Codex's token is passed to the container in plaintext, and the settings for commands executed on the host (`notify` / hooks / MCP) can be
+  written from inside the container.** Disable it for workspaces where you want to prevent that
+- Codex's own sandbox is disabled by default. The only things stopping commands Codex runs are the approval policy (the user's setting) and the container's outer frame
+- Global skills (`~/.agents/skills`) are outside `~/.codex`, so they are not passed even with the module enabled. Bind them with `local/compose.yml` if needed
+  ([customization.md](customization.md))
+- `codex resume` / `codex fork` by default target only sessions with the same working directory. On the host it is `/Users/<user>/src/foo`, in the container
+  `/workspaces/foo`, so even when shared, sessions from the other side do not appear in the default list (they do with `--all`)
+- Whether a project is trusted is also recorded by path in `config.toml`. The container path differs from the host's, so the container side asks again
+- The version is pinned by `CODEX_VERSION` (a release tag) in the `Dockerfile`. To update, bump this value, then `dcc build` → `dcc recreate`.
+  The update notification at startup is turned off by the default arguments
+- `/opt/codex` is about 260 MB and is included in the image even if you do not use Codex
+- Running multiple `dcc exec --agent codex` in the same container at once shares Codex's shared background server. To isolate them, use `--no-daemon`
+- Codex sends usage metrics by default. To stop it, set `[analytics] enabled = false` in `config.toml`
