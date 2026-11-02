@@ -5,7 +5,7 @@
 setup() {
   load helpers/common
   common_setup
-  unset DCC_CREDS DCC_GPG_SIGNING_KEY GNUPGHOME HOST_HOME
+  unset DCC_CREDS DCC_GPG_SIGNING_KEY GNUPGHOME HOST_HOME DCC_CLAUDE_HOME_VOLUME DCC_CODEX_HOME_VOLUME
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME"
   # Keep the host export of the gpg module away from the repository's gnupg-host/
@@ -143,7 +143,15 @@ root_hook_stubs() {
   run bash "$REPO/lifecycle_hooks/postCreate-root.sh" "$(id -un)"
   [ "$status" -eq 1 ]
   assert_hook_lines
-  [[ "${lines[0]}" == "warn: $HOME/.claude: owned by uid 0, not $(id -un); remove the volume (dcc-claude-home, or DCC_CLAUDE_HOME_VOLUME)"* ]]
+  [[ "${lines[0]}" == "warn: $HOME/.claude: owned by uid 0, not $(id -un); remove the volume (dcc-claude-home) and run 'dcc recreate'"* ]]
+}
+
+@test "postCreate-root: the hint names the volume the container actually has (DCC_*_HOME_VOLUME from compose)" {
+  root_hook_stubs
+  stub stat 'echo 0'
+  DCC_CLAUDE_HOME_VOLUME=my-claude run bash "$REPO/lifecycle_hooks/postCreate-root.sh" "$(id -un)"
+  [ "$status" -eq 1 ]
+  [[ "${lines[0]}" == *"remove the volume (my-claude) and run 'dcc recreate'"* ]]
 }
 
 @test "postCreate-root: the ownership check is skipped for directories shared by the claude / codex modules" {
@@ -182,6 +190,14 @@ esac'
   [ "$(stat -c %a "$HOME/.claude")" = 700 ]
   [ "$(stat -c %a "$HOME/.codex")" = 700 ]
   [ "$(jq -r --arg ws "$BATS_TEST_TMPDIR/ws" '.projects[$ws].hasTrustDialogAccepted' "$HOME/.claude.json")" = true ]
+}
+
+@test "postCreate: names the volumes the container actually has (DCC_*_HOME_VOLUME from compose)" {
+  user_hook_setup
+  DCC_CLAUDE_HOME_VOLUME=my-claude DCC_CODEX_HOME_VOLUME=my-codex run bash "$REPO/lifecycle_hooks/postCreate.sh"
+  [ "$status" -eq 0 ]
+  [ "${lines[1]}" = "~/.claude: on volume my-claude (claude module off)" ]
+  [ "${lines[3]}" = "~/.codex: on volume my-codex (codex module off)" ]
 }
 
 @test "postCreate: claude module → ~/.claude.json is a container-local copy of the host's, the host's is untouched" {

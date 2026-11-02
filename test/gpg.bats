@@ -161,6 +161,20 @@ new_repo() {
   [[ "$output" == *"DCC_GPG_SIGN_URI is not set (gpg module not enabled)"* ]]
 }
 
+@test "client: the reason reaches git's stderr once per failure, appended (a redirected log is not truncated)" {
+  local repo log="$BATS_TEST_TMPDIR/git.log"
+  repo="$(new_repo)"
+  echo "earlier line" >"$log"
+  ! DCC_GPG_SIGN_URI="http://127.0.0.1:$(free_port)/sign" \
+    git -C "$repo" commit -q -S --allow-empty -m unreachable 2>>"$log"
+  [ "$(head -n 1 "$log")" = "earlier line" ]
+  grep -qF "gpg-sign-client: cannot reach the gpg-signer sidecar" "$log"
+  # Called directly (not by git), the message is not written twice
+  run --separate-stderr env DCC_GPG_SIGN_URI="http://127.0.0.1:$(free_port)/sign" \
+    "$REPO/capabilities/gpg/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"x"
+  [ "$(grep -c "cannot reach" <<<"$stderr")" -eq 1 ]
+}
+
 @test "client: anything but signing is plain gpg" {
   stub gpg 'echo "plain gpg"'
   run "$REPO/capabilities/gpg/gpg-sign-client.sh" --verify sig -
@@ -175,7 +189,8 @@ new_repo() {
     run timeout 20 git -C "$repo" commit -q -S --allow-empty -m locked
   [ "$status" -ne 0 ]
   [ "$status" -ne 124 ]
-  # git may not show gpg.program's stderr, so check the wrapper's own message directly
+  # Even a git that keeps gpg.program's stderr to itself shows the reason (the wrapper writes to git's stderr)
+  [[ "$output" == *"gpg-sign-client: signing failed (HTTP 503): gpg exited"*"run capabilities/gpg/warm.sh"* ]]
   DCC_GPG_SIGN_URI="http://127.0.0.1:$LOCKED_PORT/sign" \
     run "$REPO/capabilities/gpg/gpg-sign-client.sh" --status-fd=2 -bsau X \
     <<<"tree 0123456789012345678901234567890123456789"

@@ -60,7 +60,10 @@ If the agent container is taken over:
 - **TLS certificates**: when `DOCKER_TLS_CERTDIR` is set, the entrypoint of the `docker:dind` family generates CA, server, and client certificates in `/certs` on first start. The server certificate's SAN includes `docker` (the service name), `localhost`, and `127.0.0.1`, so **do not change the service name `docker`**. `/certs/client/key.pem` is generated with mode 0644 and is readable by the agent container's container user (`agent`). The certificates persist in a volume until `dcc clear --volumes`
 - **Startup order**: the agent container has `depends_on: docker: condition: service_started`. For a few seconds right after startup, `docker` commands may fail (postCreate does not use docker)
 - **Network**: `ports` / `hostname` / `dns` / `extra_hosts` cannot be written on the agent container side. `sysctls: net.ipv4.ip_unprivileged_port_start=0` lets the uid 1000 port driver bind ports below 1024 as well. Inner containers cannot reach the parent netns's `127.0.0.1` (rootlesskit `--disable-host-loopback`)
-- **Persistence**: `<project>_docker-certs` (`/certs`) and `<project>_docker-data` (images, containers, volumes, buildkit cache). They are prefixed with the project name and independent per workspace. Not shared with the host Docker's images
+- **Persistence**: `<project>_docker-certs` (`/certs`) and `<project>_docker-data` (images, containers, volumes, buildkit cache). They are prefixed with the project name and independent per workspace. Not shared with the host Docker's images.
+  The image also declares `VOLUME /var/lib/docker`, which rootless dockerd does not use; it is covered by a tmpfs. Left unmapped,
+  Docker would give every new sidecar container an empty anonymous volume that `dcc recreate` / `dcc clear` (compose `down`
+  without `--volumes`) leave behind
 
 ## Constraints and known holes
 

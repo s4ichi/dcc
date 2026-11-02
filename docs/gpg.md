@@ -87,6 +87,9 @@ git commit -S
 ```
 
 Thanks to `--pinentry-mode error`, if the passphrase is not cached it returns 503 instead of hanging, the wrapper prints an error, and `git commit` fails cleanly.
+The image's git (2.39, Debian bookworm) keeps gpg.program's stderr to itself and prints only `gpg failed to sign the data`,
+so when git is the caller the wrapper also appends the reason (`gpg-sign-client: signing failed (HTTP 503): ... run
+capabilities/gpg/warm.sh ...`) to git's own stderr (`/proc/<git>/fd/2`). That is what the agent sees.
 
 The signing key is resolved at host-side export time and pinned when the sidecar starts. If you change the key, run `dcc recreate` (`dcc` compares the running sidecar's `/run/signing-key` with the export result and warns if they differ). `commit.gpgsign = true` follows the host's `~/.gitconfig*` ([git.md](git.md)).
 

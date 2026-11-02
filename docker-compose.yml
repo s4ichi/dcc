@@ -21,6 +21,8 @@ services:
       - path: "${DCC_CONTAINER_ENV_FILE:-/dev/null}"
         required: false
     environment:
+      DCC_CLAUDE_HOME_VOLUME: "${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}"
+      DCC_CODEX_HOME_VOLUME: "${DCC_CODEX_HOME_VOLUME:-dcc-codex-home}"
       DCC_CREDS: "${DCC_CREDS-}"
       DOCKER_CERT_PATH: "/certs/client"
       DOCKER_HOST: "tcp://docker:2376"
@@ -67,6 +69,8 @@ services:
       - source: "docker-data"
         target: "/home/rootless/.local/share/docker"
         type: "volume"
+      - target: "/var/lib/docker"
+        type: "tmpfs"
 volumes:
   claude-home:
     external: true

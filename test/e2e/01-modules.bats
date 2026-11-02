@@ -112,6 +112,15 @@ teardown() {
   done
 }
 
+@test "no container has an anonymous volume (every VOLUME of the images is mapped)" {
+  local id
+  for id in $(docker ps -q --filter "label=com.docker.compose.project=$PROJECT"); do
+    run docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{.Destination}}{{println}}{{end}}{{end}}' "$id"
+    # Named volumes are project-prefixed or fixed-name (dcc-*); an anonymous one is a bare 64-hex id
+    ! grep -E '^[0-9a-f]{64} ' <<<"$output" || { echo "anonymous volume in $id" >&2; return 1; }
+  done
+}
+
 # --- Docker sidecar -------------------------------------------------------------
 
 @test "docker: the agent drives the sidecar's rootless dockerd over TLS" {
@@ -173,6 +182,8 @@ commit_signed() {
   run commit_signed unwarmed
   [ "$status" -ne 0 ]
   [ "$SECONDS" -lt 30 ]
+  # The image's git does not show gpg.program's stderr itself; the wrapper puts the reason there
+  [[ "$output" == *"gpg-sign-client: signing failed (HTTP 503): "*"run capabilities/gpg/warm.sh on the host"* ]]
   run in_agent bash -c 'printf "tree %040d\n" 0 | /usr/local/lib/dcc/gpg-sign-client.sh --status-fd=2 -bsau x'
   [[ "$output" == *"passphrase not cached?"* ]]
 }
