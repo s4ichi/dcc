@@ -5,15 +5,19 @@
 setup() {
   load helpers/common
   common_setup
-  unset DCC_CREDS DCC_GPG_SIGNING_KEY GNUPGHOME HOST_HOME
+  unset DCC_CREDS DCC_GPG_SIGNING_KEY HOST_HOME
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME"
   # Keep the host export of the gpg module away from the repository's gnupg-host/
   export DCC_GPG_EXPORT_DIR="$BATS_TEST_TMPDIR/gnupg-host"
+  # Not $HOME/.gnupg: that would be gpg's default homedir, served by the standard agent socket, where the
+  # developer's real gpg-agent may listen (systemd) and answer with the real keyring
+  export GNUPGHOME="$BATS_TEST_TMPDIR/gnupg"
+  mkdir -m 700 "$GNUPGHOME"
 }
 
 teardown() {
-  gpgconf --homedir "$HOME/.gnupg" --kill all 2>/dev/null || true
+  gpgconf --homedir "$GNUPGHOME" --kill all 2>/dev/null || true
 }
 
 # --- initialize.sh ------------------------------------------------------------
