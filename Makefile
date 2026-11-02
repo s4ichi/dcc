@@ -28,7 +28,7 @@ lint:
 test: test-sh test-py
 
 test-sh:
-	bats test
+	bats --print-output-on-failure test
 
 test-py:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s test/python
@@ -36,7 +36,7 @@ test-py:
 # End-to-end tests: build the images and run dcc against a fake host on the local Docker daemon (takes minutes).
 # DCC_E2E_* settings are at the top of test/e2e/helpers.bash
 e2e:
-	bats test/e2e
+	bats --print-output-on-failure test/e2e
 
 clean:
 	rm -f $(OUT)
