@@ -2,7 +2,7 @@
 
 GET /credentials runs `aws configure export-credentials --format process`,
 converts its output to the format the SDK expects via AWS_CONTAINER_CREDENTIALS_FULL_URI, and returns it.
-No refresh / cache (the SDK caches on its own until Expiration, and the CLI prepares credentials through
+Long-lived keys (no SessionToken / Expiration) are refused with 503. No refresh / cache (the SDK caches on its own until Expiration, and the CLI prepares credentials through
 the login / SSO mechanisms).
 
 Environment variables:
@@ -44,15 +44,19 @@ def export_credentials():
     except ValueError:
         return None, "unexpected output from aws configure export-credentials"
 
-    creds = {
+    # Only temporary credentials leave the sidecar: a profile with static keys would otherwise hand a long-lived
+    # key to the agent container (and the SDKs' container provider requires Token / Expiration anyway). docs/aws.md
+    if not src.get("SessionToken") or not src.get("Expiration"):
+        return None, (
+            f"profile {PROFILE} resolves to long-lived keys (no SessionToken / Expiration); "
+            "only temporary credentials are served (use aws login, SSO or a role)"
+        )
+    return {
         "AccessKeyId": src["AccessKeyId"],
         "SecretAccessKey": src["SecretAccessKey"],
-    }
-    if src.get("SessionToken"):
-        creds["Token"] = src["SessionToken"]
-    if src.get("Expiration"):
-        creds["Expiration"] = src["Expiration"]
-    return creds, None
+        "Token": src["SessionToken"],
+        "Expiration": src["Expiration"],
+    }, None
 
 
 class Handler(BaseHTTPRequestHandler):

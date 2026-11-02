@@ -82,6 +82,7 @@ Nothing under the host's `$HOME` is passed to the Docker sidecar (`privileged`).
 | `$LOCAL_WORKSPACE_FOLDER` | `/workspaces/$LOCAL_WORKSPACE_BASENAME` | rw | bind |
 | volume `docker-certs` | `/certs` | rw | volume |
 | volume `docker-data` | `/home/rootless/.local/share/docker` | rw | volume |
+| (none) | `/var/lib/docker` | rw | tmpfs. Unused by rootless dockerd; mapped only so the image's `VOLUME` does not leave an anonymous volume ([docker.md](docker.md)) |
 
 Module sidecars (unprivileged):
 

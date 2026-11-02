@@ -29,7 +29,7 @@ if has_cred claude; then
   echo "~/.claude: shared with host"
 else
   chmod 700 "${HOME}/.claude"
-  echo "~/.claude: on volume dcc-claude-home (claude module off)"
+  echo "~/.claude: on volume ${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home} (claude module off)"
 fi
 
 # Mark the workspace as trusted. ~/.claude.json is container-local, so an approval is lost on recreate and
@@ -47,7 +47,7 @@ if has_cred codex; then
   echo "~/.codex: shared with host"
 else
   chmod 700 "${HOME}/.codex"
-  echo "~/.codex: on volume dcc-codex-home (codex module off)"
+  echo "~/.codex: on volume ${DCC_CODEX_HOME_VOLUME:-dcc-codex-home} (codex module off)"
 fi
 
 # When the gpg module is enabled: import the public key and ownertrust into the container user's keyring for verification

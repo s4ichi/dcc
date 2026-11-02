@@ -110,7 +110,8 @@ dcc up --creds a,b ──► docker compose -p <project> -f base -f workspace -f
   use docker).
 - Environment variables: `DOCKER_HOST` / `DOCKER_TLS_VERIFY` / `DOCKER_CERT_PATH` ([docker.md](docker.md)),
   `HOST_HOME` (the host's `$HOME`; used for plugin path resolution in [claude-code.md](claude-code.md)),
-  `DCC_CREDS` (enabled credential modules, comma-separated), `TZ`. The user's environment variables are read via `env_file` from a dotenv file
+  `DCC_CREDS` (enabled credential modules, comma-separated), `DCC_CLAUDE_HOME_VOLUME` / `DCC_CODEX_HOME_VOLUME` (volume names, only for
+  postCreate's messages), `TZ`. The user's environment variables are read via `env_file` from a dotenv file
   that `dcc` assembles from `DCC_CONTAINER_ENV_<NAME>` ([customization.md](customization.md)).
 - Volumes: `~/.gitconfig` (ro bind), `~/.claude` / `~/.codex` (external volumes with fixed names `dcc-claude-home` / `dcc-codex-home`;
   the `claude` / `codex` modules override the same target with a host bind), `/certs` (ro), `lifecycle_hooks/` (ro bind). The workspace is added by

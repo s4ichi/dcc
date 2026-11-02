@@ -27,8 +27,8 @@ check_volume_owner() {
   echo "warn: $2: owned by uid $(stat -c %u "$2"), not $user; remove the volume ($3) and run 'dcc recreate' with the current image" >&2
   return 1
 }
-check_volume_owner claude "$home/.claude" "dcc-claude-home, or DCC_CLAUDE_HOME_VOLUME"
-check_volume_owner codex "$home/.codex" "dcc-codex-home, or DCC_CODEX_HOME_VOLUME"
+check_volume_owner claude "$home/.claude" "${DCC_CLAUDE_HOME_VOLUME:-dcc-claude-home}"
+check_volume_owner codex "$home/.codex" "${DCC_CODEX_HOME_VOLUME:-dcc-codex-home}"
 
 # Metadata of plugins installed on the host contains absolute host paths, so
 # symlink the host home -> container home to resolve them

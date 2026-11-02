@@ -118,7 +118,7 @@ generated_files() {
 }
 
 @test "nothing mounts the host's docker socket" {
-  run jq -r '.services[].volumes[]?.source | select(test("docker\\.sock"))' <<<"$(config "${MODULES[@]}")"
+  run jq -r '.services[].volumes[]?.source // empty | select(test("docker\\.sock"))' <<<"$(config "${MODULES[@]}")"
   [ -z "$output" ]
 }
 
@@ -169,6 +169,24 @@ generated_files() {
 
 @test "the agent choice is not part of the container (no AGENT in compose)" {
   ! generated_files | xargs grep -nE 'AGENT'
+}
+
+@test "the docker sidecar maps every VOLUME its image declares (no anonymous volume per container)" {
+  # docker:*-dind-rootless declares both; checked against the image itself in test/e2e
+  local cfg target
+  cfg="$(config)"
+  for target in /home/rootless/.local/share/docker /var/lib/docker; do
+    jq -e --arg t "$target" '.services.docker.volumes[] | select(.target == $t)' <<<"$cfg" >/dev/null \
+      || { echo "nothing mounted at $target" >&2; return 1; }
+  done
+}
+
+@test "the volume names the hooks report are the volumes compose mounts" {
+  local cfg
+  cfg="$(DCC_CLAUDE_HOME_VOLUME=my-claude DCC_CODEX_HOME_VOLUME=my-codex config)"
+  [ "$(jq -r '.services.agent.environment.DCC_CLAUDE_HOME_VOLUME' <<<"$cfg")" = "$(jq -r '.volumes["claude-home"].name' <<<"$cfg")" ]
+  [ "$(jq -r '.services.agent.environment.DCC_CODEX_HOME_VOLUME' <<<"$cfg")" = "$(jq -r '.volumes["codex-home"].name' <<<"$cfg")" ]
+  [ "$(jq -r '.volumes["claude-home"].name' <<<"$cfg")" = my-claude ]
 }
 
 @test "the docker CLI in the agent points at the service named docker (in the TLS certificate's SAN)" {
