@@ -4,3 +4,5 @@
 /.env
 /local/
 /.claude/
+/.e2e/
+__pycache__/

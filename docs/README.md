@@ -15,6 +15,7 @@ Suggested reading order: to learn how it works, [architecture.md](architecture.m
 | [credentials.md](credentials.md) | Selective granting of credential modules. How to specify `--creds`, drift behavior, how overlays work, adding a module |
 | [customization.md](customization.md) | Per-user customization with `DCC_*` environment variables and `local/`, host-side assumptions |
 | [devcontainer.md](devcontainer.md) | How to use the compose files from the devcontainer CLI / VS Code without `dcc` |
+| [testing.md](testing.md) | Component tests (`make check`) and end-to-end tests (`make e2e`), how credentials are faked, CI |
 
 ## Per-boundary pages
 
