@@ -29,7 +29,7 @@ teardown() {
   [ -z "${BATS_TEST_COMPLETED:-}" ] || return 0
   # What the gpg module had to work with (names and keygrips only; the keys are throwaway)
   echo "--- host keygrips / export"
-  ls -la "$HOME/.gnupg" "$HOME/.gnupg/private-keys-v1.d" 2>&1
+  ls -la "$DCC_GNUPG_DIR" "$DCC_GNUPG_DIR/private-keys-v1.d" 2>&1
   head -n 5 "$DCC_GPG_EXPORT_DIR/keygrips.txt" "$DCC_GPG_EXPORT_DIR/signing-key.txt" 2>&1
   local signer
   signer="$(service_id gpg-signer)"
@@ -101,7 +101,7 @@ teardown() {
 }
 
 @test "agent: no long-lived host keys (~/.aws, ~/.gnupg, host ~/.ssh) are mounted or present" {
-  ! mounts_of "$(service_id agent)" | grep -E " $HOME/\.(aws|gnupg|ssh)(/| )"
+  ! mounts_of "$(service_id agent)" | grep -E " ($HOME/\.(aws|gnupg|ssh)|$DCC_GNUPG_DIR)(/| )"
   run in_agent bash -c 'test -e ~/.aws && echo "has ~/.aws"; gpg --list-secret-keys --with-colons 2>/dev/null; ls ~/.gnupg/private-keys-v1.d 2>/dev/null'
   [ -z "$output" ]
 }

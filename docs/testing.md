@@ -50,7 +50,10 @@ Each file makes a temp directory and points `HOME` at a fake home in it, so `dcc
 `COMPOSE_DISABLE_ENV_FILE=1` keep the repository's `.env` out, every `DCC_*` / `AWS_*` / `GH_*` from the environment is
 unset, and images and fixed-name volumes get e2e-only names (`dcc-e2e:local`, `dcc-e2e-claude-home`, ...).
 `DCC_GPG_EXPORT_DIR`, `DCC_SSH_DIR` and `DCC_LOCAL_DIR` point into the temp directory, so `capabilities/gpg/gnupg-host`,
-`capabilities/ssh/data` and `local/` of the checkout are not touched.
+`capabilities/ssh/data` and `local/` of the checkout are not touched. The GnuPG home is `DCC_GNUPG_DIR` in the temp
+directory, not `$HOME/.gnupg`: with `HOME` faked, that would be gpg's default homedir, which uses the standard agent
+socket (`/run/user/<uid>/gnupg/S.gpg-agent`). A systemd user gpg-agent of the real home listens there on Linux, and it
+would take the throwaway keys into the developer's real keyring (the component tests set `GNUPGHOME` for the same reason).
 
 | Module | Dummy | Served through the real path |
 |---|---|---|

@@ -35,6 +35,9 @@ e2e_setup_file() {
   export DCC_IMAGE=dcc-e2e:local DCC_BASE_IMAGE=dcc-e2e:base DCC_UID="${DCC_E2E_UID:-$(id -u)}"
   export DCC_CLAUDE_HOME_VOLUME=dcc-e2e-claude-home DCC_CODEX_HOME_VOLUME=dcc-e2e-codex-home DCC_GH_HOME_VOLUME=dcc-e2e-gh-home
   export DCC_GPG_EXPORT_DIR="$E2E_ROOT/gnupg-host" DCC_SSH_DIR="$E2E_ROOT/ssh" DCC_LOCAL_DIR="$E2E_ROOT/local"
+  # Not $HOME/.gnupg: with HOME faked that is gpg's default homedir, whose agent socket is the standard one, where a
+  # systemd user gpg-agent of the real home may listen and would take the throwaway keys into the real keyring
+  export DCC_GNUPG_DIR="$E2E_ROOT/gnupg"
   export DCC_COMPOSE_FILES=""
   if [ "${DCC_E2E_DOCKER:-}" = stub ]; then
     # Same image, volumes and sysctls, but dockerd never starts. HOST_HOME moves out of /workspaces: inside a dcc
@@ -72,7 +75,7 @@ e2e_teardown_file() {
   fi
   "$REPO/dcc" clear "$WS" --volumes >/dev/null 2>&1 || true
   docker volume rm dcc-e2e-claude-home dcc-e2e-codex-home dcc-e2e-gh-home >/dev/null 2>&1 || true
-  gpgconf --homedir "$HOME/.gnupg" --kill all 2>/dev/null || true
+  gpgconf --homedir "$DCC_GNUPG_DIR" --kill all 2>/dev/null || true
   # Containers may have left files owned by other uids; a leftover under TMPDIR is not worth failing for
   rm -rf -- "${E2E_ROOT:?}" 2>/dev/null || true
 }
@@ -110,8 +113,8 @@ region = us-east-1
 [profile other]
 credential_process = cat /root/.aws/login/cache/e2e-process.json
 EOF
-  GPG_FPR="$(new_gpg_key "$HOME/.gnupg" "dcc e2e <e2e@example.invalid>" "$E2E_GPG_PASSPHRASE")"
-  GPG_FPR2="$(new_gpg_key "$HOME/.gnupg" "dcc e2e two <e2e-two@example.invalid>")"
+  GPG_FPR="$(new_gpg_key "$DCC_GNUPG_DIR" "dcc e2e <e2e@example.invalid>" "$E2E_GPG_PASSPHRASE")"
+  GPG_FPR2="$(new_gpg_key "$DCC_GNUPG_DIR" "dcc e2e two <e2e-two@example.invalid>")"
   export GPG_FPR GPG_FPR2
   git config --file "$HOME/.gitconfig" user.signingkey "$GPG_FPR"
   ssh-keygen -q -t ed25519 -N '' -C dcc-e2e -f "$DCC_SSH_DIR/id_ed25519"
