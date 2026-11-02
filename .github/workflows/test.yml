@@ -55,7 +55,6 @@ jobs:
     env:
       # The runner is throwaway, so the tests that act on every workspace run too
       DCC_E2E_ALL: "1"
-      DCC_E2E_TMPDIR: ${{ runner.temp }}/e2e
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -76,4 +75,5 @@ jobs:
           docker compose version
           bats --version
       - name: make e2e (build images, then dcc against a fake host)
-        run: make e2e
+        # The runner context is not available in job-level env, so RUNNER_TEMP is read here
+        run: DCC_E2E_TMPDIR="$RUNNER_TEMP/e2e" make e2e
