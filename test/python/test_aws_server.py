@@ -54,6 +54,23 @@ class AwsServerTest(ServerTestCase):
             self.args_file.read_text().strip(), "configure export-credentials --profile dev --format process"
         )
 
+    def test_long_lived_keys_are_refused(self):
+        # A profile with static keys resolves without SessionToken / Expiration; it must not reach the agent
+        for output in (
+            {"Version": 1, "AccessKeyId": "AKIASTATIC", "SecretAccessKey": "long-lived-secret"},
+            {"Version": 1, "AccessKeyId": "AKIASTATIC", "SecretAccessKey": "long-lived-secret", "SessionToken": "t"},
+            {"Version": 1, "AccessKeyId": "AKIASTATIC", "SecretAccessKey": "long-lived-secret", "Expiration": "x"},
+        ):
+            self.fake_aws(json.dumps(output))
+            status, _, body = self.request("GET", "/credentials")
+            self.assertEqual(status, 503, output)
+            reply = json.loads(body)
+            self.assertEqual(reply["Code"], "CredentialsUnavailable")
+            self.assertIn("long-lived keys", reply["Message"])
+            self.assertIn("profile dev", reply["Message"])
+            self.assertNotIn(b"long-lived-secret", body)
+            self.assertNotIn(b"AKIASTATIC", body)
+
     def test_cli_failure_is_503_and_diagnostics_stay_in_the_sidecar(self):
         self.fake_aws(stderr="Error when retrieving token: session expired SENSITIVE", code=255)
         status, _, body = self.request("GET", "/credentials")

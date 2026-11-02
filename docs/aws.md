@@ -63,7 +63,7 @@ Inside the container, check with `aws sts get-caller-identity`.
 
 ### Details
 
-- The sidecar image is `public.ecr.aws/aws-cli/aws-cli` (`capabilities/aws/`). For each `GET /credentials` it runs `export-credentials`, converts the result to the Container Credential Provider format, and returns it. On failure it returns 503 (body contains only `Code` / `Message`); anything other than `/credentials` is 404
+- The sidecar image is `public.ecr.aws/aws-cli/aws-cli` (`capabilities/aws/`). For each `GET /credentials` it runs `export-credentials`, converts the result to the Container Credential Provider format, and returns it. A result without `SessionToken` / `Expiration` (long-lived keys) is refused. On failure it returns 503 (body contains only `Code` / `Message`); anything other than `/credentials` is 404
 - compose interpolates profile / region from the host's environment variables at `dcc` run time (profile: `DCC_AWS_PROFILE` → `AWS_PROFILE` → `default`; region: `DCC_AWS_REGION` → `AWS_REGION` → `AWS_DEFAULT_REGION` → `us-east-1`; [customization.md](customization.md)). `AWS_REGION` is also passed to the sidecar itself (if the profile has no region, `export-credentials` fails with `NoRegion`)
 - `dcc` warns about a change of `AWS_PROFILE` as drift (label `dcc.aws-profile`; apply with `dcc recreate`)
 - The agent container's AWS CLI v2 / SDKs (Go v2, boto3, Terraform, etc.) pick up `AWS_CONTAINER_CREDENTIALS_FULL_URI` automatically. Inside the container the concept of a profile is unavailable (`--profile` yields `ProfileNotFound`)
@@ -73,9 +73,10 @@ Inside the container, check with `aws sts get-caller-identity`.
 
 - Assumes `aws login` has been done on the host. If expired, the endpoint returns 503. Logging in again on the host recovers from the next request without restarting the sidecar
 - Temporary credentials are readable by every process in the agent container. Once exfiltrated, they are usable until they expire
-- The sidecar does not check whether the result of `export-credentials` is temporary. If the profile has a static access key
-  (`aws_access_key_id` in `~/.aws/config`, etc.), a long-lived key with no `Expiration` is handed straight to the agent container. "Long-lived keys do not leak"
-  assumes the profile is of the login / SSO / assume-role kind
+- Only temporary credentials are served. If the profile resolves to a static access key (`aws_access_key_id` in `~/.aws/config`,
+  etc.; no `SessionToken` / `Expiration`), the endpoint returns 503 instead of handing a long-lived key to the agent container.
+  Such a profile cannot be used with this module; use `aws login`, SSO or a role (the SDKs' container provider requires
+  `Token` / `Expiration` anyway)
 - Because `~/.aws/login/cache` is ro, flows where the CLI must write back a refresh token may fail (unverified; if it becomes a problem, the trade-off is to make only `login/cache` rw)
 - SSO profiles (`aws sso login`) and profiles that call an external command via `credential_process` do not work, since those files are not passed to the sidecar / the command is absent. Add them with `local/compose.yml` if needed
 - Inner containers cannot see the endpoint (they cannot reach the parent netns's `127.0.0.1`). The only way to give an inner container AWS permissions is to pass them explicitly, e.g. via environment variables

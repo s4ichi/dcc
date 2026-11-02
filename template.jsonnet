@@ -269,6 +269,9 @@ local compose = {
         TZ: '${DCC_TZ:-${TZ:-UTC}}',
         HOST_HOME: home,
         DCC_CREDS: '${DCC_CREDS-}',
+        // Only for the postCreate hooks' messages (which volume ~/.claude / ~/.codex is, to remove it)
+        DCC_CLAUDE_HOME_VOLUME: claudeHomeVolume,
+        DCC_CODEX_HOME_VOLUME: codexHomeVolume,
       },
       // The user's environment variables. dcc collects DCC_CONTAINER_ENV_<NAME>=value into a temp file and
       // passes its path in DCC_CONTAINER_ENV_FILE (empty if none)
@@ -302,6 +305,9 @@ local compose = {
       volumes: [
         volume('docker-certs', certsDir),
         volume('docker-data', dindDataDir),
+        // The image also declares VOLUME /var/lib/docker, which rootless dockerd does not use. Unmapped, every
+        // container creation leaves an empty anonymous volume behind (down without --volumes keeps it). docs/docker.md
+        { type: 'tmpfs', target: '/var/lib/docker' },
       ],
     },
   },

@@ -41,7 +41,8 @@ on_tty() {
 
 @test "up --no-creds: ~/.claude and ~/.codex are the shared external volumes, owned by the container user" {
   grep -qF "▸ volume         creating dcc-e2e-claude-home for ~/.claude  (claude module off)" "$E2E_ROOT/up.log"
-  grep -qF "▸ ~/.claude      on volume " "$E2E_ROOT/up.log"
+  grep -qF "▸ ~/.claude      on volume dcc-e2e-claude-home (claude module off)" "$E2E_ROOT/up.log"
+  grep -qF "▸ ~/.codex       on volume dcc-e2e-codex-home (codex module off)" "$E2E_ROOT/up.log"
   docker volume inspect dcc-e2e-claude-home dcc-e2e-codex-home >/dev/null
   [ "$(mounts_of "$FIRST_ID" | awk '$3 == "/home/agent/.claude" { print $1 }')" = volume ]
   [ "$(in_agent stat -c '%U %a' /home/agent/.claude /home/agent/.codex | paste -sd' ' -)" = "agent 700 agent 700" ]
@@ -107,14 +108,21 @@ on_tty() {
   [[ "$output" == *"selected:  ssh   # from flags"* ]]
 }
 
+anonymous_volumes() {
+  docker volume ls -q --filter label=com.docker.volume.anonymous | sort
+}
+
 @test "recreate --creds ssh: a new container with the new selection, postCreate runs again" {
   mkdir -p "$DCC_SSH_DIR"
+  anonymous_volumes >"$BATS_TEST_TMPDIR/before"
   run dcc recreate "$WS" --creds ssh
   [ "$status" -eq 0 ]
   [[ "$output" == *"▸ containers     removing agent, docker"* ]]
   [[ "$output" == *"trusted"* ]]
   [ "$(service_id agent)" != "$FIRST_ID" ]
   [ "$(docker inspect --format '{{index .Config.Labels "dcc.credentials"}}' "$(service_id agent)")" = ssh ]
+  # Removing the old containers (down without --volumes) leaves no anonymous volume behind
+  [ -z "$(comm -13 "$BATS_TEST_TMPDIR/before" <(anonymous_volumes))" ]
   # Without flags, later runs keep the container's selection
   run dcc up "$WS"
   [[ "$output" == *"credentials  ssh"*"(existing container)"* ]]
