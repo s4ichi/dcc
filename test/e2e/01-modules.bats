@@ -26,6 +26,14 @@ setup() {
 
 teardown() {
   e2e_teardown
+  [ -z "${BATS_TEST_COMPLETED:-}" ] || return 0
+  # What the gpg module had to work with (names and keygrips only; the keys are throwaway)
+  echo "--- host keygrips / export"
+  ls -la "$HOME/.gnupg" "$HOME/.gnupg/private-keys-v1.d" 2>&1
+  head -n 5 "$DCC_GPG_EXPORT_DIR/keygrips.txt" "$DCC_GPG_EXPORT_DIR/signing-key.txt" 2>&1
+  local signer
+  signer="$(service_id gpg-signer)"
+  [ -z "$signer" ] || docker exec "$signer" ls -la /host-keys /gnupg-host 2>&1
 }
 
 # --- dcc up -------------------------------------------------------------------
