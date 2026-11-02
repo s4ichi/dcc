@@ -1,0 +1,79 @@
+# Component tests (`make check`) and end-to-end tests (`make e2e`). What each suite covers and how to run it
+# locally: docs/testing.md. Credentials are all dummies made by the tests; the workflow needs no secrets.
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: Also run the end-to-end tests on an arm64 runner (ubuntu-24.04-arm)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  component:
+    name: component
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Install bats, shellcheck, jsonnet
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bats shellcheck
+          # Same go-jsonnet as the agent image (Dockerfile JSONNET_VERSION), so generated files compare byte for byte
+          go install github.com/google/go-jsonnet/cmd/jsonnet@v0.22.0 github.com/google/go-jsonnet/cmd/jsonnetfmt@v0.22.0
+          echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+      - name: make check (shellcheck, bats, python unittest, jsonnet)
+        run: make check
+
+  e2e:
+    name: e2e (${{ matrix.runner }})
+    needs: component
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(inputs.arm64 && '["ubuntu-24.04", "ubuntu-24.04-arm"]' || '["ubuntu-24.04"]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      # The runner is throwaway, so the tests that act on every workspace run too
+      DCC_E2E_ALL: "1"
+      DCC_E2E_TMPDIR: ${{ runner.temp }}/e2e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bats
+      - name: Allow user namespaces for the rootless Docker sidecar
+        # Ubuntu 23.10+ restricts unprivileged user namespaces through AppArmor, which rootlesskit needs
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Versions
+        run: |
+          docker version
+          docker compose version
+          bats --version
+      - name: make e2e (build images, then dcc against a fake host)
+        run: make e2e

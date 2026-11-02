@@ -21,6 +21,7 @@ The source of truth for the specification is `docs/`. Only the essentials needed
 | `DCC_*` environment variables, `local/` | `docs/customization.md`, `.env.example` |
 | Design rationale and known holes per boundary | `docs/{gpg,aws,ssh,github,git,claude-code,codex,mcp,docker}.md` |
 | Using it from the devcontainer CLI / VS Code | `docs/devcontainer.md` |
+| Component / end-to-end tests, fake credentials, CI | `docs/testing.md` |
 
 ## Commands
 
@@ -28,12 +29,16 @@ The source of truth for the specification is `docs/`. Only the essentials needed
 make generate   # generate docker-compose*.yml + capabilities/*/compose.yml from template.jsonnet
 make fmt        # format template.jsonnet (jsonnetfmt -i)
 make check      # lint + test + validate Jsonnet evaluation (does not generate files)
-make lint       # shellcheck (scripts in dcc / lib / lifecycle_hooks / capabilities/{gpg,gh})
-make test       # bats (test/*.bats; sources dcc and checks functions that do not touch docker)
+make lint       # shellcheck (scripts in dcc / lib / lifecycle_hooks / capabilities/{gpg,gh} / test helpers)
+make test       # component tests: bats (test/*.bats) + Python unittest (test/python/); starts no containers
+make e2e        # end-to-end tests (test/e2e/*.bats): builds the images and runs dcc against a fake host on the local Docker
 make clean      # remove generated files
 ```
 
 `shellcheck` and `bats` are required (macOS: `brew install shellcheck bats-core`, Debian: `apt install shellcheck bats`).
+GitHub Actions runs `make check` and `make e2e` on every pull request (`.github/workflows/test.yml`). Inside a `dcc`
+container the Docker sidecar cannot run another dind, so run the end-to-end tests there with
+`DCC_E2E_DOCKER=stub DCC_E2E_TMPDIR="$PWD/.e2e" make e2e` (`docs/testing.md`).
 
 `dcc`'s commands and options are in `dcc help` and `README.md`. Commonly used for checking behavior: `dcc up` / `dcc recreate` / `dcc creds` / `dcc list`; to see all output, `DCC_VERBOSE=1`.
 
@@ -41,6 +46,7 @@ make clean      # remove generated files
 
 - **Do not edit generated files directly.** `docker-compose.yml` / `docker-compose.workspace.yml` / `docker-compose.base-image.yml` / `capabilities/*/compose.yml` are generated from `template.jsonnet`. After changing `template.jsonnet`, run `make fmt && make generate` and commit the generated files too (so it works without jsonnet on the host)
 - **If you change `dcc` / `lib/*.sh` / the hooks, make `make check` pass.** When you add a function, add a test to `test/dcc.bats`. Sourcing `dcc` only loads function definitions (only `main` at the end is executed), so tests call functions directly, and functions that call docker (`agent_label` / `container_id`, etc.) are replaced with stubs inside the test
+- **Tests follow the change** (where each kind of change gets its test: "Adding tests" in `docs/testing.md`). Hooks → `test/hooks.bats`; module scripts and `server.py` → `test/<module>.bats` / `test/python/`; a new invariant of the compose configuration → `test/compose.bats`; anything visible from inside the running containers → `test/e2e/`. Tests never use real credentials: the end-to-end tests make a fake host with dummies (`test/e2e/helpers.bash`)
 - **How to write `lib/`:** a function either "reads docker state" (`docker.sh`) or "changes it" (`project.sh`), never both. Only `load_config` / `parse_args` / `resolve_workspace` / `resolve_creds` write global variables; after that they are only read. The only thing executed at top level is `main` at the end of `dcc`
 - **Logs are one piece of information per line** (the convention at the top of `lib/log.sh`). The subject is the thing `dcc` touched; do not print function names or compose subcommand names. Hide external tools' output on success and print all of it on failure. Hooks print only lines of the form `<subject>: <predicate>` / `warn: <subject>: <predicate>`
 - **Do not bake in per-user values.** Write personal or organization-specific values in `template.jsonnet` as `${DCC_X:-<default>}`, and add one line to `.env.example` and to the table in `docs/customization.md`. If `dcc` / `initialize.sh` need the same value, reference it with the same default
@@ -66,6 +72,9 @@ make clean      # remove generated files
 | `lifecycle_hooks/postCreate-root.sh` | Hook run once as root inside the container after creation (system gitconfig, the `HOST_HOME` symlink). There is no sudo in the agent container, so `dcc up` calls it with `compose exec --user root`. Even root has no capabilities (no `chown`) |
 | `lifecycle_hooks/postCreate.sh` | Hook run once as the container user after creation. Called from `dcc up` (after the root side) and devcontainer's `postCreateCommand` |
 | `test/dcc.bats` | Function tests for `dcc` |
+| `test/{hooks,gpg,gh,compose}.bats`, `test/python/` | Component tests for the hooks, the module scripts and sidecar servers, and the static compose invariants. Shared helpers in `test/helpers/` |
+| `test/e2e/` | End-to-end tests against a fake host (`helpers.bash` makes it and holds the `DCC_E2E_*` settings) |
+| `.github/workflows/test.yml` | CI: `make check`, then `make e2e` |
 | `AGENTS.md` | Entry point for Codex and other agents. The conventions live in this file (`CLAUDE.md`); `AGENTS.md` only points here. To change the conventions, edit this file |
 | `.env.example` | List of `DCC_*` and their defaults (this is the source of truth) |
 | `.env`, `local/`, `capabilities/{ssh,gh}/data/`, `capabilities/gpg/gnupg-host/` | Gitignored. The user's settings and secrets. **Do not read them, do not commit them** |

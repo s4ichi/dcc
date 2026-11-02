@@ -175,6 +175,7 @@ The same compose files can be referenced from `dockerComposeFile` in `devcontain
 | [docs/boundaries.md](docs/boundaries.md) | Overview of the boundaries with the host, design principles, mounts |
 | [docs/credentials.md](docs/credentials.md) | Selecting credential modules and how they work, how to add a module |
 | [docs/customization.md](docs/customization.md) | `DCC_*` environment variables, `local/`, host-side assumptions |
+| [docs/testing.md](docs/testing.md) | Component and end-to-end tests, the fake host, CI |
 | [docs/README.md](docs/README.md) | Index of all pages (including the per-boundary pages) and terminology |
 
 ## Development
@@ -182,8 +183,12 @@ The same compose files can be referenced from `dockerComposeFile` in `devcontain
 ```bash
 make generate   # generate the compose files from template.jsonnet
 make fmt        # jsonnetfmt
-make check      # shellcheck + bats + Jsonnet evaluation
+make check      # shellcheck + component tests (bats, Python) + Jsonnet evaluation
+make e2e        # end-to-end tests: build the images and run dcc against a fake host on the local Docker
 ```
+
+Both run in GitHub Actions on every pull request, with dummy credentials only. What each test covers, how the
+credentials are faked, and how to run the end-to-end tests inside a `dcc` container: [docs/testing.md](docs/testing.md).
 
 `docker-compose*.yml` and `capabilities/*/compose.yml` are generated files, so do not edit them directly; change `template.jsonnet` and
 run `make generate`. The required tools are `jsonnet` (go-jsonnet), `shellcheck`, and `bats`
