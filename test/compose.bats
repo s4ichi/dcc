@@ -251,6 +251,19 @@ template_vars() {
   grep -qxF "ARG GO_VERSION=$want" "$REPO/Dockerfile"
 }
 
+@test "every pinned version has a renovate comment directly above it" {
+  # Without one, Renovate never bumps it (renovate.json, docs/architecture.md "Dependency updates")
+  local f bad=""
+  for f in "$REPO"/Dockerfile "$REPO"/capabilities/*/Dockerfile "$REPO"/.github/workflows/*.yml; do
+    bad="$bad$(awk -v f="${f#"$REPO"/}" '
+      /^[[:space:]]*(ARG[[:space:]]+)?[A-Z0-9_]+_VERSION[=:]/ && prev !~ /^[[:space:]]*# renovate: datasource=[^ ]+ depName=[^ ]+/ {
+        printf " %s:%d", f, NR
+      }
+      { prev = $0 }' "$f")"
+  done
+  [ -z "$bad" ] || { echo "no renovate comment:$bad" >&2; return 1; }
+}
+
 @test "every module has a docs page and a README entry" {
   local m page
   for m in "${MODULES[@]}"; do

@@ -42,10 +42,10 @@ local baseImage = '${DCC_BASE_IMAGE:-dcc:base}';
 local buildContext = '${DCC_BUILD_CONTEXT:-' + configDir + '}';
 local dockerfile = '${DCC_DOCKERFILE:-Dockerfile}';
 // The only privileged container, so pin it by digest (the tag is for readability; pull is decided by the digest).
-// To bump it, rewrite it to the index digest from `docker buildx imagetools inspect docker:<ver>-dind-rootless`,
-// and update the default in .env.example and docs/customization.md too. docs/docker.md
-local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.2-dind-rootless@sha256:ae083cc7de51e7a8e5a597f8fb774ca7914c408a95fc0f1477826a913479518a}';
-local goVersion = '${DCC_GO_VERSION:-1.26.3}';
+// Renovate bumps the tag and the index digest here and in .env.example together (renovate.json), then runs
+// `make generate`. Keep the `DCC_DIND_IMAGE:-docker:<tag>@sha256:<digest>` shape it matches. docs/docker.md
+local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.3-dind-rootless@sha256:8ab74b2756666a4cf56056e9595c63798506ae7122a525f1c61612610f496481}';
+local goVersion = '${DCC_GO_VERSION:-1.27.3}';
 
 local buildArgs = {
   BASE_IMAGE: baseImage,

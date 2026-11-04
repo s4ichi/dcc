@@ -1,0 +1,76 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Run by .github/workflows/renovate.yml. What is tracked and how: docs/architecture.md (Dependency updates)",
+  "extends": ["config:recommended"],
+  "timezone": "Asia/Tokyo",
+  "prHourlyLimit": 0,
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "ignorePaths": [
+    "docker-compose.yml",
+    "docker-compose.*.yml",
+    "capabilities/*/compose.yml"
+  ],
+  "customManagers": [
+    {
+      "description": "Versions annotated with `# renovate: datasource=… depName=… [versioning=…] [extractVersion=…]` on the line above",
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/", "/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: versioning=(?<versioning>\\S+))?(?: extractVersion=(?<extractVersion>\\S+))?\\s*\\n\\s*(?:ARG\\s+)?[A-Z][A-Z0-9_]*\\s*[=:]\\s*\"?(?<currentValue>[^\\s\"]+)\"?"
+      ]
+    },
+    {
+      "description": "Default image of the Docker sidecar (tag and index digest)",
+      "customType": "regex",
+      "managerFilePatterns": ["/^template\\.jsonnet$/", "/^\\.env\\.example$/"],
+      "matchStrings": [
+        "DCC_DIND_IMAGE(?::-|=)(?<depName>docker):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Default Go version passed as a build arg (same depName as GO_VERSION in Dockerfile, so one PR)",
+      "customType": "regex",
+      "managerFilePatterns": ["/^template\\.jsonnet$/", "/^\\.env\\.example$/"],
+      "matchStrings": ["DCC_GO_VERSION(?::-|=)(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "go",
+      "datasourceTemplate": "golang-version"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Claude Code is taken as soon as it is released",
+      "matchDepNames": ["@anthropic-ai/claude-code"],
+      "minimumReleaseAge": null
+    },
+    {
+      "description": "Generated compose files follow template.jsonnet",
+      "matchFileNames": ["template.jsonnet"],
+      "postUpgradeTasks": {
+        "commands": ["make generate"],
+        "fileFilters": ["docker-compose.yml", "docker-compose.*.yml", "capabilities/*/compose.yml"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "description": "sha256 pinned in the Dockerfile: recompute it from the `# sha256: <url>` comments",
+      "matchDepNames": ["duckdb/duckdb", "aws/aws-cli", "volta-cli/volta", "terrastruct/d2"],
+      "postUpgradeTasks": {
+        "commands": ["make sha256"],
+        "fileFilters": ["Dockerfile"],
+        "executionMode": "branch"
+      },
+      "prBodyNotes": [
+        "The `*_SHA256_*` values in `Dockerfile` were recomputed from the new downloads by `make sha256`."
+      ]
+    },
+    {
+      "description": "The runner's Node must satisfy Renovate's engines (node ^24.11.0 for 44.x)",
+      "matchFileNames": [".github/workflows/renovate.yml"],
+      "matchDepNames": ["node"],
+      "allowedVersions": "<25"
+    }
+  ]
+}

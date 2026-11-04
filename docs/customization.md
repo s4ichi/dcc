@@ -30,7 +30,7 @@ tracked files do not need to be edited.
 | `DCC_USER` / `DCC_UID` / `DCC_GID` | `agent` / `1000` / `$DCC_UID` | User inside the container. Passed as Dockerfile build args. Match them on a Linux host when uid ≠ 1000 |
 | `DCC_IMAGE` | `dcc:local` | Tag of the agent image (shared by all workspaces; use a different tag if you change the user / uid) |
 | `DCC_BASE_IMAGE` | `dcc:base` | Tag of the base image (this repository's Dockerfile) when `local/Dockerfile` is used. If changed, match `FROM` too |
-| `DCC_DIND_IMAGE` | `docker:29.9.2-dind-rootless@sha256:…` ([`.env.example`](../.env.example) is authoritative) | Image of the Docker sidecar. Pinned by digest because it is the only privileged container ([docker.md](docker.md)) |
+| `DCC_DIND_IMAGE` | `docker:<ver>-dind-rootless@sha256:…` ([`.env.example`](../.env.example) is authoritative) | Image of the Docker sidecar. Pinned by digest because it is the only privileged container ([docker.md](docker.md)) |
 | `DCC_GO_VERSION` | Dockerfile default | Go version in the agent image (build arg) |
 | `DCC_TZ` | `$TZ`, otherwise `UTC` | Time zone of the agent container |
 | `DCC_CONTAINER_ENV_<NAME>` | none | Passed as environment variable `NAME` inside the container (e.g. `DCC_CONTAINER_ENV_GOPRIVATE`). Fixed at container creation (below) |

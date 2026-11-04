@@ -19,7 +19,8 @@ No real credential is used anywhere. Every module gets a dummy that exercises th
 | `test/hooks.bats` | `lifecycle_hooks/initialize.sh` (per-module pre-checks, gpg export), `postCreate-root.sh` (safe.directory, `HOST_HOME` link, volume owner check), `postCreate.sh` (`~/.claude.json` copy and trust, volume permissions, gpg public key import). Output follows the hook line format | `claude`, `git` (for `--system`), `getent`, `stat` are stubs; `HOME` is a temp directory |
 | `test/gpg.bats` | `export-host-keys.sh` (key selection by `DCC_GPG_SIGNING_KEY` / `user.signingkey`, nothing secret exported), `git commit -S` / `git tag -s` through `gpg-sign-client.sh` against the real `server.py` and verification, refusal of non-git payloads, the not-warmed failure, `warm.sh`'s lookup of the sidecar | Throwaway GnuPG keyrings; `docker` is a stub for `warm.sh` |
 | `test/gh.bats` | `gh-token-client.sh` as git credential helper (host / protocol matching, failure leaves no password) and as the `gh` wrapper (login changes refused, `GH_TOKEN` passed), against the real `server.py` | The server's `gh` is a stub handing out a dummy token |
-| `test/compose.bats` | Generated files match `template.jsonnet` and are formatted; every module overlay merges; the invariants of [CLAUDE.md](../CLAUDE.md) on the merged configuration (only `docker` privileged, `cap_drop` / `no-new-privileges`, shared netns and no ports, no docker socket, no host binds in `docker` but the workspace, same workspace path, no `~/.aws` / `~/.gnupg` / `~/.ssh` in `agent`, no duplicated volume targets, no relative paths, repository files bound only as directories and no single-file binds into `agent` beyond `~/.gitconfig` / `~/.claude.json.host`, no `AGENT`); conventions (every `DCC_*` in `.env.example` and [customization.md](customization.md) with the same default, a docs page per module) | Nothing is started (`docker compose config` only), `HOME` is a fake path |
+| `test/compose.bats` | Generated files match `template.jsonnet` and are formatted; every module overlay merges; the invariants of [CLAUDE.md](../CLAUDE.md) on the merged configuration (only `docker` privileged, `cap_drop` / `no-new-privileges`, shared netns and no ports, no docker socket, no host binds in `docker` but the workspace, same workspace path, no `~/.aws` / `~/.gnupg` / `~/.ssh` in `agent`, no duplicated volume targets, no relative paths, repository files bound only as directories and no single-file binds into `agent` beyond `~/.gitconfig` / `~/.claude.json.host`, no `AGENT`); conventions (every `DCC_*` in `.env.example` and [customization.md](customization.md) with the same default, a docs page per module, a `# renovate:` comment above every pinned version in the Dockerfiles and workflows) | Nothing is started (`docker compose config` only), `HOME` is a fake path |
+| `test/update-sha256.bats` | `scripts/update-sha256.sh` (`make sha256`): rewrites only the `ARG`s with a `# sha256:` comment, expands the file's `ARG`s in the URL, leaves the file untouched when a download fails, rejects unknown variables and a misplaced comment | Downloads are `file://` URLs in the test's temp directory |
 | `test/python/test_*_server.py` | The three sidecar servers' HTTP contract: response format, status codes, timeouts, what is logged, what reaches the CLI they wrap (e.g. no `GH_TOKEN` into `gh`), payload validation of the signer | Fake `aws` / `gh` on `PATH`; real `gpg` with a throwaway key |
 
 Shared helpers (`stub`, `start_server`, `new_gpg_key`, ...) are in `test/helpers/common.bash` and
@@ -102,12 +103,13 @@ containers, project volumes, e2e home volumes and fake host at the end (`DCC_E2E
 
 | Job | Runner | Steps |
 |---|---|---|
-| `component` | `ubuntu-24.04` | apt `bats` / `shellcheck`, go-jsonnet at the agent image's version (so generated files compare byte for byte), `make check` |
-| `e2e` | `ubuntu-24.04` (+ `ubuntu-24.04-arm` when started by hand with `arm64`) | Allows unprivileged user namespaces (Ubuntu 23.10+ restricts them through AppArmor, and rootlesskit in the Docker sidecar needs them), then `make e2e` with `DCC_E2E_ALL=1` |
+| `component` | `ubuntu-26.04` | apt `bats` / `shellcheck`, go-jsonnet at the agent image's version (so generated files compare byte for byte), `make check` |
+| `e2e` | `ubuntu-26.04` (+ `ubuntu-26.04-arm` when started by hand with `arm64`) | Allows unprivileged user namespaces (Ubuntu 23.10+ restricts them through AppArmor, and rootlesskit in the Docker sidecar needs them), then `make e2e` with `DCC_E2E_ALL=1` |
 
-Actions are pinned by commit SHA (the tag is in the comment); bump them together with the comment. The e2e job
+Actions are pinned by commit SHA (the tag is in the comment); Renovate bumps both together
+([architecture.md](architecture.md#dependency-updates); `.github/workflows/renovate.yml` is the weekly run, not a test). The e2e job
 builds the agent image from scratch each time. When a download in the `Dockerfile` changes upstream (for example
-Claude Code's `install.sh`, whose sha256 is pinned), this job is where it shows first.
+Claude Code's `install.sh`, whose sha256 is pinned, or a release that renames its download), this job is where it shows first.
 
 ## Not covered
 

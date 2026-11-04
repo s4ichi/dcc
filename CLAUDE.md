@@ -29,9 +29,10 @@ The source of truth for the specification is `docs/`. Only the essentials needed
 make generate   # generate docker-compose*.yml + capabilities/*/compose.yml from template.jsonnet
 make fmt        # format template.jsonnet (jsonnetfmt -i)
 make check      # lint + test + validate Jsonnet evaluation (does not generate files)
-make lint       # shellcheck (scripts in dcc / lib / lifecycle_hooks / capabilities/{gpg,gh} / test helpers)
+make lint       # shellcheck (scripts in dcc / lib / scripts / lifecycle_hooks / capabilities/{gpg,gh} / test helpers)
 make test       # component tests: bats (test/*.bats) + Python unittest (test/python/); starts no containers
 make e2e        # end-to-end tests (test/e2e/*.bats): builds the images and runs dcc against a fake host on the local Docker
+make sha256     # recompute the Dockerfile's *_SHA256_* ARGs from their `# sha256: <url>` comments (Renovate runs it after a bump)
 make clean      # remove generated files
 ```
 
@@ -75,6 +76,8 @@ container the Docker sidecar cannot run another dind, so run the end-to-end test
 | `test/{hooks,gpg,gh,compose}.bats`, `test/python/` | Component tests for the hooks, the module scripts and sidecar servers, and the static compose invariants. Shared helpers in `test/helpers/` |
 | `test/e2e/` | End-to-end tests against a fake host (`helpers.bash` makes it and holds the `DCC_E2E_*` settings) |
 | `.github/workflows/test.yml` | CI: `make check`, then `make e2e` |
+| `renovate.json`, `.github/workflows/renovate.yml` | Dependency bump PRs (Renovate CLI, weekly, releases 7 days old). A pinned version needs a `# renovate:` comment directly above it (`test/compose.bats` checks it), and a pinned sha256 a `# sha256: <url>` comment; see "Dependency updates" in `docs/architecture.md` |
+| `scripts/update-sha256.sh` | `make sha256`. Tool-agnostic: reads the `# sha256:` comments only (`test/update-sha256.bats`) |
 | `AGENTS.md` | Entry point for Codex and other agents. The conventions live in this file (`CLAUDE.md`); `AGENTS.md` only points here. To change the conventions, edit this file |
 | `.env.example` | List of `DCC_*` and their defaults (this is the source of truth) |
 | `.env`, `local/`, `capabilities/{ssh,gh}/data/`, `capabilities/gpg/gnupg-host/` | Gitignored. The user's settings and secrets. **Do not read them, do not commit them** |

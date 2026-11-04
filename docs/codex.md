@@ -152,7 +152,7 @@ The following are inferences from the official documentation and source and **ha
 - `codex resume` / `codex fork` by default target only sessions with the same working directory. On the host it is `/Users/<user>/src/foo`, in the container
   `/workspaces/foo`, so even when shared, sessions from the other side do not appear in the default list (they do with `--all`)
 - Whether a project is trusted is also recorded by path in `config.toml`. The container path differs from the host's, so the container side asks again
-- The version is pinned by `CODEX_VERSION` (a release tag) in the `Dockerfile`. To update, bump this value, then `dcc build` → `dcc recreate`.
+- The version is pinned by `CODEX_VERSION` (a release tag) in the `Dockerfile`. Renovate opens the bump PR ([architecture.md](architecture.md#dependency-updates)); after it is merged, `dcc build` → `dcc recreate`.
   The update notification at startup is turned off by the default arguments
 - `/opt/codex` is about 260 MB and is included in the image even if you do not use Codex
 - Running multiple `dcc exec --agent codex` in the same container at once shares Codex's shared background server. To isolate them, use `--no-daemon`
