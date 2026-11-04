@@ -44,7 +44,7 @@ git config --system --add safe.directory "$(pwd)"
 # When the gpg module is enabled: register the wrapper that delegates signing to the gpg-signer sidecar as gpg.program
 # (the main path is compose's GIT_CONFIG_* environment variables; this is a fallback in case env is stripped).
 # Importing the public key for verification goes into the container user's keyring, so postCreate.sh does it
-client=/usr/local/lib/dcc/gpg-sign-client.sh
+client=/usr/local/lib/dcc/gpg/gpg-sign-client.sh
 if [ -x "$client" ]; then
   git config --system gpg.program "$client"
   echo "gpg: signing delegated to gpg-signer"
@@ -52,7 +52,7 @@ fi
 
 # When the gh module is enabled: make git's https auth use the gh-token sidecar's short-lived token.
 # gh auth setup-git fails trying to write ~/.gitconfig (ro), so register it in system
-client=/usr/local/lib/dcc/gh-token-client.sh
+client=/usr/local/lib/dcc/gh/gh-token-client.sh
 if [ -x "$client" ]; then
   host="${DCC_GH_HOST:-github.com}"
   git config --system --replace-all "credential.https://${host}.helper" "!${client} git-credential"

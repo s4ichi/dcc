@@ -25,7 +25,7 @@ Boundaries are considered along 3 axes:
 3. **The sidecar, not the agent container, fetches the key.** Signing (gpg), AWS, and GitHub (gh) use delegated execution; the agent container receives only signatures and expiring temporary credentials / access tokens
 4. **Never bring long-lived keys into the container.** The host's `~/.ssh`, `~/.aws/credentials`, the private keys in `~/.gnupg`, and tokens in the Keychain are not passed. What is passed is a key created just for the container (`ssh`) or a refresh token held only by the sidecar (`gh`), with narrowed permissions. **The exception is the `codex` module**: when enabled, the host's `~/.codex/auth.json` (Codex's token; a plaintext file) is passed to the container as is. By default it is not passed and you log in separately inside the container ([codex.md](codex.md))
 5. **Read-only by default.** Only things that need writes (`~/.claude`, `~/.codex`, the workspace, the `gh-token` sidecar's state volume) are rw
-6. **Avoid single-file bind mounts.** Binding a file that is atomically written inside the container (tmp → rename) as a single file makes `rename` fail with EXDEV and breaks it. Such files are passed ro as `.host` and copied in postCreate (`~/.claude.json`), or passed as the whole parent directory (`~/.codex/config.toml`)
+6. **Avoid single-file bind mounts.** A single-file bind pins the file's inode, which breaks two ways. Inside the container, an atomic write (tmp → rename) fails with EXDEV: such files are passed ro as `.host` and copied in postCreate (`~/.claude.json`), or passed as the whole parent directory (`~/.codex/config.toml`). On the host, anything that replaces the file (`git pull` / `git checkout`, an editor's save, `git config --global`) leaves the container on the old, now deleted file (on Docker Desktop it simply vanishes: "No such file or directory") until `dcc recreate`: files of this repository are therefore bound as directories that hold only what the agent container may see (`capabilities/<module>/agent/`, `capabilities/ssh/conf/`). The remaining single-file bind is `~/.gitconfig` ([git.md](git.md))
 7. **Do not pass the host's Docker.** `/var/run/docker.sock` is not passed to the container. Docker is provided by a rootless sidecar ([docker.md](docker.md))
 8. **Do not pass the macOS Keychain.** Authentication for Claude Code itself and for MCP servers is done inside the container, and the result is kept in `~/.claude/.credentials.json` ([mcp.md](mcp.md))
 
@@ -64,12 +64,11 @@ Entries whose "Module" is `always` are in the base compose (`docker-compose.yml`
 | `aws` | None (the `aws-credentials` sidecar issues temporary credentials on `127.0.0.1:8080`) | Only the environment variable `AWS_CONTAINER_CREDENTIALS_FULL_URI` | — | — | [aws.md](aws.md) |
 | `gpg` | None (the `gpg-signer` sidecar provides the signing API on `127.0.0.1:8081`) | Only the environment variable `DCC_GPG_SIGN_URI` and the wrapper | — | — | [gpg.md](gpg.md) |
 | `gpg` | `<repo>/capabilities/gpg/gnupg-host` | `~/.gnupg-host` | ro | bind | [gpg.md](gpg.md). Exported public keys and ownertrust (for verification) |
-| `gpg` | `<repo>/capabilities/gpg/gpg-sign-client.sh` | `/usr/local/lib/dcc/gpg-sign-client.sh` | ro | bind | [gpg.md](gpg.md). The `gpg.program` wrapper |
+| `gpg` | `<repo>/capabilities/gpg/agent/` | `/usr/local/lib/dcc/gpg/` | ro | bind | [gpg.md](gpg.md). The `gpg.program` wrapper only |
 | `ssh` | `<repo>/capabilities/ssh/data` | `~/.ssh` | ro | bind | [ssh.md](ssh.md). Only the container-only private key |
-| `ssh` | `<repo>/capabilities/ssh/config` | `/etc/ssh/ssh_config.d/github.conf` | ro | bind | [ssh.md](ssh.md). Tracked in git |
-| `ssh` | `<repo>/capabilities/ssh/known_hosts` | `/etc/ssh/ssh_known_hosts` | ro | bind | [ssh.md](ssh.md). Tracked in git |
+| `ssh` | `<repo>/capabilities/ssh/conf/` (`DCC_SSH_CONF_DIR`) | `/etc/ssh/dcc/` | ro | bind | [ssh.md](ssh.md). `github.conf` + `known_hosts`, tracked in git. Included from the image's `ssh_config.d` |
 | `gh` | None (the `gh-token` sidecar issues access tokens on `127.0.0.1:8082`) | Only the environment variables `DCC_GH_TOKEN_URI` / `DCC_GH_HOST` | — | — | [github.md](github.md) |
-| `gh` | `<repo>/capabilities/gh/gh-token-client.sh` | `/usr/local/lib/dcc/gh-token-client.sh`, `/usr/local/bin/gh` | ro | bind | [github.md](github.md). The `gh` wrapper and the git credential helper |
+| `gh` | `<repo>/capabilities/gh/agent/` | `/usr/local/lib/dcc/gh/` (first on the image's `PATH`) | ro | bind | [github.md](github.md). `gh-token-client.sh` (git credential helper) and `gh`, a symlink to it (the `gh` wrapper) |
 
 `<repo>` is this repository. In compose files it is written as absolute paths based on `${DCC_CONFIG_DIR}`, and host-side paths can be changed with `DCC_*` environment variables ([customization.md](customization.md)).
 

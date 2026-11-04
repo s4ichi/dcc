@@ -392,5 +392,14 @@ RUN set -eux; \
     rm -rf "/tmp/d2-${D2_VERSION}" /tmp/d2.tgz; \
     d2 --version
 
+# Layer 16: where the credential modules plug into the image
+#
+# The modules bind directories of the repository (not single files, which would go stale when git or an editor
+# replaces them; docs/boundaries.md). Without a module the directory is absent and both hooks are no-ops:
+#   /usr/local/lib/dcc/gh  gh module: its gh wrapper must win over /usr/bin/gh, so the directory goes first on PATH
+#   /etc/ssh/dcc           ssh module: github.conf (+ known_hosts it points at), included from ssh_config.d
+ENV PATH=/usr/local/lib/dcc/gh:$PATH
+RUN echo 'Include /etc/ssh/dcc/*.conf' >/etc/ssh/ssh_config.d/dcc.conf
+
 USER ${USERNAME}
 WORKDIR /workspaces

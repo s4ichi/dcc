@@ -64,8 +64,8 @@ container the Docker sidecar cannot run another dind, so run the end-to-end test
 | `docker-compose.workspace.yml` | Generated file (overlay). The workspace bind for `dcc` and the `dcc.workspace` label |
 | `docker-compose.base-image.yml` | Generated file (overlay). Override for building the base image when `local/Dockerfile` exists. Used only by `dcc build` / `dcc up` |
 | `capabilities/<name>/compose.yml` | Generated file (overlay). The compose fragment for each credential module |
-| `capabilities/gpg/`, `capabilities/aws/`, `capabilities/gh/` | Module sidecar images (`server.py`), the host-side scripts for `gpg` (`export-host-keys.sh` / `warm.sh`), and agent-side wrappers (`gpg-sign-client.sh` / `gh-token-client.sh`) |
-| `capabilities/ssh/config`, `known_hosts` | GitHub-specific settings that the `ssh` module injects into `/etc/ssh` (tracked in git) |
+| `capabilities/gpg/`, `capabilities/aws/`, `capabilities/gh/` | Module sidecar images (`server.py`), the host-side scripts for `gpg` (`export-host-keys.sh` / `warm.sh`), and agent-side wrappers in `agent/` (`gpg-sign-client.sh` / `gh-token-client.sh`; each `agent/` is bound to the agent container as a directory) |
+| `capabilities/ssh/conf/` | GitHub-specific settings (`github.conf`, `known_hosts`) that the `ssh` module binds to `/etc/ssh/dcc` (tracked in git) |
 | `Dockerfile` | The agent image (`debian:bookworm-slim`, without dockerd). Personal layers are added in `local/Dockerfile` |
 | `dcc`, `lib/*.sh` | Entry point and implementation of the CLI (the split is described in the comment at the top of `dcc` and in `docs/architecture.md`) |
 | `lifecycle_hooks/initialize.sh` | Host-side pre-processing (per-module export / pre-checks). Called from `dcc up` and devcontainer's `initializeCommand` |
@@ -92,6 +92,7 @@ The reason for each is in the docs in parentheses. If you need to change one, re
 - Module sidecars share the netns with `network_mode: service:docker` and listen only on `127.0.0.1`. This is because the AWS SDK rejects `http://` endpoints other than loopback; as a result, the endpoints are unreachable from outside the netns (`docs/aws.md`)
 - Never bring long-lived keys into the agent container. `~/.aws`, `~/.gnupg`, the host's `~/.ssh`, and the Keychain are not mounted into the agent container (`docs/boundaries.md`)
 - Do not single-file bind files that are atomically written inside the container (`~/.claude.json`). Pass them ro as `.host` and copy them in postCreate (`docs/claude-code.md`). `~/.codex` is also written via rename for `config.toml`, so always pass it as a whole directory (`docs/codex.md`)
+- Do not single-file bind files of this repository either: `git pull` / checkout and editors replace them, and the container keeps the old (deleted) inode until recreate. Put what the agent container needs in a directory of its own (`capabilities/<module>/agent/`, `capabilities/ssh/conf/`) and bind that (`docs/boundaries.md`; `test/compose.bats` checks it)
 - Do not make the agent choice (`--agent`) an attribute of the container. Both agents live together in the same container; do not bring `AGENT` into labels or compose interpolation (doing so would make switching require `dcc recreate`)
 - Do not make the Claude Code binary (`~/.local/share/claude`) a volume. The version baked into the image is authoritative (`docs/claude-code.md`). The Codex binary also lives in `/opt/codex` (the image), not under `~/.codex`
 - Compose merges multi-file `volumes` by appending per target, and the same target is last-wins. Do not duplicate targets except for the intentional override (`~/.claude` by the `claude` module)

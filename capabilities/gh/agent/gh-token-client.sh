@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Agent-side client of the gh module. The token is fetched from the gh-token sidecar every time and never stored in the agent container. docs/github.md
-#   When called as /usr/local/bin/gh: put it in GH_TOKEN and run /usr/bin/gh
-#     (gh does not refresh GH_TOKEN, so fetch it again on every run)
+#   When called as gh (the symlink next to it; the image puts this directory first on PATH): put it in GH_TOKEN and
+#     run /usr/bin/gh (gh does not refresh GH_TOKEN, so fetch it again on every run)
 #   `<this> git-credential get` (git credential helper): return the token for https on $DCC_GH_HOST
 set -euo pipefail
 

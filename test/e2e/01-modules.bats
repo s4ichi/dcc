@@ -78,9 +78,10 @@ teardown() {
 @test "agent: even root inside has no capabilities (chown fails)" {
   # A file of the test's own, so nothing else in the container can change its owner meanwhile
   in_agent touch /tmp/owned-by-agent
-  run in_agent_root bash -c 'grep "^CapEff:" /proc/self/status; chown root /tmp/owned-by-agent'
+  [ "$(in_agent_root grep '^CapEff:' /proc/self/status)" = $'CapEff:\t0000000000000000' ]
+  # Separately: docker exec delivers stdout and stderr as two streams, so their order in one output is not fixed
+  run in_agent_root chown root /tmp/owned-by-agent
   [ "$status" -ne 0 ]
-  [ "${lines[0]}" = $'CapEff:\t0000000000000000' ]
   [[ "$output" == *"Operation not permitted"* ]]
 }
 
@@ -183,7 +184,7 @@ commit_signed() {
 
 @test "gpg: the agent has the public key only, and git's gpg.program is the wrapper" {
   in_agent gpg --list-keys "$GPG_FPR" >/dev/null
-  [ "$(in_agent git config gpg.program)" = /usr/local/lib/dcc/gpg-sign-client.sh ]
+  [ "$(in_agent git config gpg.program)" = /usr/local/lib/dcc/gpg/gpg-sign-client.sh ]
 }
 
 @test "gpg: before the passphrase is cached, signing fails fast" {
@@ -194,7 +195,7 @@ commit_signed() {
   [ "$SECONDS" -lt 30 ]
   # The image's git does not show gpg.program's stderr itself; the wrapper puts the reason there
   [[ "$output" == *"gpg-sign-client: signing failed (HTTP 503): "*"run capabilities/gpg/warm.sh on the host"* ]]
-  run in_agent bash -c 'printf "tree %040d\n" 0 | /usr/local/lib/dcc/gpg-sign-client.sh --status-fd=2 -bsau x'
+  run in_agent bash -c 'printf "tree %040d\n" 0 | /usr/local/lib/dcc/gpg/gpg-sign-client.sh --status-fd=2 -bsau x'
   [[ "$output" == *"passphrase not cached?"* ]]
 }
 
@@ -247,6 +248,8 @@ commit_signed() {
 # --- gh -------------------------------------------------------------------------
 
 @test "gh: gh and git over https get the sidecar's token; the login cannot be changed" {
+  # The wrapper is found before /usr/bin/gh
+  [ "$(in_agent bash -c 'command -v gh')" = /usr/local/lib/dcc/gh/gh ]
   [ "$(in_agent gh auth token)" = gho_e2e_dummy_token ]
   run in_agent git credential fill < <(printf 'protocol=https\nhost=github.com\n\n')
   [[ "$output" == *"username=x-access-token"* ]]
@@ -268,7 +271,22 @@ commit_signed() {
   [[ "$output" == *"identityfile ~/.ssh/id_ed25519"* ]]
   [[ "$output" == *"identitiesonly yes"* ]]
   [[ "$output" == *"user git"* ]]
-  in_agent ssh-keygen -F github.com -f /etc/ssh/ssh_known_hosts >/dev/null
+  [[ "$output" == *"globalknownhostsfile /etc/ssh/dcc/known_hosts"* ]]
+  in_agent ssh-keygen -F github.com -f /etc/ssh/dcc/known_hosts >/dev/null
+}
+
+@test "module files replaced on the host reach the running container (directory binds)" {
+  # What git pull / an editor's save does: a new file renamed over the old one (a new inode)
+  local conf="$DCC_SSH_CONF_DIR/github.conf"
+  { cat "$conf"; echo "  ServerAliveInterval 42"; } >"$conf.new"
+  mv "$conf.new" "$conf"
+  run in_agent ssh -G github.com
+  [[ "$output" == *"serveraliveinterval 42"* ]]
+  # The module directories are binds of directories, not of single files
+  local target
+  for target in /usr/local/lib/dcc/gpg /usr/local/lib/dcc/gh /etc/ssh/dcc; do
+    in_agent test -d "$target"
+  done
 }
 
 # --- dcc creds / drift (last: they re-export the host's keys) -------------------

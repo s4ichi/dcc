@@ -118,7 +118,7 @@ new_repo() {
   git -C "$repo" config user.name test
   git -C "$repo" config user.email test@example.invalid
   git -C "$repo" config user.signingkey ignored-by-the-signer
-  git -C "$repo" config gpg.program "$REPO/capabilities/gpg/gpg-sign-client.sh"
+  git -C "$repo" config gpg.program "$REPO/capabilities/gpg/agent/gpg-sign-client.sh"
   echo "$repo"
 }
 
@@ -141,7 +141,7 @@ new_repo() {
 
 @test "client: a payload that is not a git object is refused (403)" {
   DCC_GPG_SIGN_URI="http://127.0.0.1:$SIGN_PORT/sign" \
-    run --separate-stderr "$REPO/capabilities/gpg/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"hello"
+    run --separate-stderr "$REPO/capabilities/gpg/agent/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"hello"
   [ "$status" -eq 2 ]
   [ -z "$output" ]
   [[ "$stderr" == *"refusing to sign"* ]]
@@ -150,13 +150,13 @@ new_repo() {
 
 @test "client: unreachable signer → exit 2" {
   DCC_GPG_SIGN_URI="http://127.0.0.1:$(free_port)/sign" \
-    run "$REPO/capabilities/gpg/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"tree 0123456789012345678901234567890123456789"
+    run "$REPO/capabilities/gpg/agent/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"tree 0123456789012345678901234567890123456789"
   [ "$status" -eq 2 ]
   [[ "$output" == *"cannot reach the gpg-signer sidecar"* ]]
 }
 
 @test "client: without the gpg module (no DCC_GPG_SIGN_URI) signing fails with a clear message" {
-  run "$REPO/capabilities/gpg/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"x"
+  run "$REPO/capabilities/gpg/agent/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"x"
   [ "$status" -ne 0 ]
   [[ "$output" == *"DCC_GPG_SIGN_URI is not set (gpg module not enabled)"* ]]
 }
@@ -171,13 +171,13 @@ new_repo() {
   grep -qF "gpg-sign-client: cannot reach the gpg-signer sidecar" "$log"
   # Called directly (not by git), the message is not written twice
   run --separate-stderr env DCC_GPG_SIGN_URI="http://127.0.0.1:$(free_port)/sign" \
-    "$REPO/capabilities/gpg/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"x"
+    "$REPO/capabilities/gpg/agent/gpg-sign-client.sh" --status-fd=2 -bsau X <<<"x"
   [ "$(grep -c "cannot reach" <<<"$stderr")" -eq 1 ]
 }
 
 @test "client: anything but signing is plain gpg" {
   stub gpg 'echo "plain gpg"'
-  run "$REPO/capabilities/gpg/gpg-sign-client.sh" --verify sig -
+  run "$REPO/capabilities/gpg/agent/gpg-sign-client.sh" --verify sig -
   [ "$output" = "plain gpg" ]
   grep -qxF "gpg --verify sig -" "$STUB_LOG"
 }
@@ -192,7 +192,7 @@ new_repo() {
   # Even a git that keeps gpg.program's stderr to itself shows the reason (the wrapper writes to git's stderr)
   [[ "$output" == *"gpg-sign-client: signing failed (HTTP 503): gpg exited"*"run capabilities/gpg/warm.sh"* ]]
   DCC_GPG_SIGN_URI="http://127.0.0.1:$LOCKED_PORT/sign" \
-    run "$REPO/capabilities/gpg/gpg-sign-client.sh" --status-fd=2 -bsau X \
+    run "$REPO/capabilities/gpg/agent/gpg-sign-client.sh" --status-fd=2 -bsau X \
     <<<"tree 0123456789012345678901234567890123456789"
   [ "$status" -eq 2 ]
   [[ "$output" == *"passphrase not cached? run capabilities/gpg/warm.sh"* ]]

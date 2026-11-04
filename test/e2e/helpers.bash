@@ -35,6 +35,9 @@ e2e_setup_file() {
   export DCC_IMAGE=dcc-e2e:local DCC_BASE_IMAGE=dcc-e2e:base DCC_UID="${DCC_E2E_UID:-$(id -u)}"
   export DCC_CLAUDE_HOME_VOLUME=dcc-e2e-claude-home DCC_CODEX_HOME_VOLUME=dcc-e2e-codex-home DCC_GH_HOME_VOLUME=dcc-e2e-gh-home
   export DCC_GPG_EXPORT_DIR="$E2E_ROOT/gnupg-host" DCC_SSH_DIR="$E2E_ROOT/ssh" DCC_LOCAL_DIR="$E2E_ROOT/local"
+  # A copy of the repository's ssh settings, so a test can replace files in it the way git pull would
+  export DCC_SSH_CONF_DIR="$E2E_ROOT/ssh-conf"
+  cp -R "$REPO/capabilities/ssh/conf" "$DCC_SSH_CONF_DIR"
   # Not $HOME/.gnupg: with HOME faked that is gpg's default homedir, whose agent socket is the standard one, where a
   # systemd user gpg-agent of the real home may listen and would take the throwaway keys into the real keyring
   export DCC_GNUPG_DIR="$E2E_ROOT/gnupg"

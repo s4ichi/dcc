@@ -46,7 +46,7 @@ tracked files do not need to be edited.
 | `DCC_GPG_SIGNING_KEY` | `git config user.signingkey` | Signing key (fingerprint / keyid / email) |
 | `DCC_GPG_EXPORT_DIR` | `$DCC_CONFIG_DIR/capabilities/gpg/gnupg-host` | Output directory of the host-side export |
 | `DCC_GPG_SIGNER_PORT` | `8081` | Port of the signing API |
-| `DCC_SSH_DIR` / `DCC_SSH_CONFIG` / `DCC_SSH_KNOWN_HOSTS` | `$DCC_CONFIG_DIR/capabilities/ssh/{data,config,known_hosts}` | Private key location / connection settings / host keys of the `ssh` module |
+| `DCC_SSH_DIR` / `DCC_SSH_CONF_DIR` | `$DCC_CONFIG_DIR/capabilities/ssh/{data,conf}` | Private key location / directory with the connection settings (`github.conf`) and host keys (`known_hosts`) of the `ssh` module |
 | `DCC_GH_HOST` | `github.com` | Host the `gh` module issues tokens for (for GitHub Enterprise, its host name) |
 | `DCC_GH_HOME_VOLUME` | `dcc-gh-home` | Name of the external volume holding the `gh-token` sidecar's state (refresh token) (shared by all workspaces; created by `dcc up` / `dcc gh-login`) |
 | `DCC_GH_TOKEN_PORT` | `8082` | Port of the access token endpoint |
