@@ -78,9 +78,10 @@ teardown() {
 @test "agent: even root inside has no capabilities (chown fails)" {
   # A file of the test's own, so nothing else in the container can change its owner meanwhile
   in_agent touch /tmp/owned-by-agent
-  run in_agent_root bash -c 'grep "^CapEff:" /proc/self/status; chown root /tmp/owned-by-agent'
+  [ "$(in_agent_root grep '^CapEff:' /proc/self/status)" = $'CapEff:\t0000000000000000' ]
+  # Separately: docker exec delivers stdout and stderr as two streams, so their order in one output is not fixed
+  run in_agent_root chown root /tmp/owned-by-agent
   [ "$status" -ne 0 ]
-  [ "${lines[0]}" = $'CapEff:\t0000000000000000' ]
   [[ "$output" == *"Operation not permitted"* ]]
 }
 
