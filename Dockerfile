@@ -8,9 +8,13 @@
 #   USERNAME / USER_UID / USER_GID  ← DCC_USER / DCC_UID / DCC_GID
 #   GO_VERSION                      ← DCC_GO_VERSION
 # Versions of downloaded tools are pinned by an ARG right before each layer (never latest; the same Dockerfile gives the same versions).
+# The `# renovate:` comment above each version tells Renovate where new releases come from; it opens the bump PRs
+# (renovate.json, docs/architecture.md). Keep the comment directly above the ARG when adding a tool.
 # Downloads are checked with sha256. Where the distributor publishes a checksum file (Go / yq / uv / Codex) we check against it
 # (same origin, so this detects corruption and substitution in transit); where not (duckdb / AWS CLI / Volta / d2 /
-# Claude Code's install.sh) the sha256 is written in an ARG and checked. To bump a version, rewrite the ARG default and sha256.
+# Claude Code's install.sh) the sha256 is written in an ARG and checked. A `# sha256: <url>` comment above such an ARG
+# lets `make sha256` (scripts/update-sha256.sh) recompute it after a bump; Renovate runs it in its PR. install.sh has
+# none on purpose: it changes independently of the version, and a change should be read before it is trusted.
 # Things installed via apt (Docker CLI / gh / Corretto, etc.) rely on apt's signature verification and are not version-pinned.
 # Add personal tools in a local/Dockerfile that does `FROM dcc:base` instead of editing this file
 # (docs/customization.md).
@@ -20,7 +24,8 @@ FROM debian:bookworm-slim
 ARG USERNAME=agent
 ARG USER_UID=1000
 ARG USER_GID=${USER_UID}
-ARG GO_VERSION=1.26.3
+# renovate: datasource=golang-version depName=go
+ARG GO_VERSION=1.27.3
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -158,7 +163,8 @@ RUN set -eux; \
 # install.sh is not run via `curl | bash`; its sha256 is checked, then it runs with CLAUDE_CODE_VERSION as the argument.
 # install.sh itself verifies the binary against the checksum in the distributor's manifest. The sha256 changes when the
 # distributor updates install.sh, so if the build fails, re-fetch it with `curl -fsSL https://claude.ai/install.sh | sha256sum` and review the diff.
-ARG CLAUDE_CODE_VERSION=2.1.308
+# renovate: datasource=npm depName=@anthropic-ai/claude-code
+ARG CLAUDE_CODE_VERSION=2.1.318
 ARG CLAUDE_INSTALL_SHA256=3a68d3406cf674e17bed1733a4dcf37805e2e47d87417700007d7e1aa766a944
 RUN set -eux; \
     curl -fsSL -o /tmp/claude-install.sh https://claude.ai/install.sh; \
@@ -170,6 +176,7 @@ RUN set -eux; \
     test -x "/home/${USERNAME}/.local/bin/claude"
 
 # Layer 6: yq (YAML/JSON/XML processor)
+# renovate: datasource=github-releases depName=mikefarah/yq
 ARG YQ_VERSION=v4.54.1
 RUN set -eux; \
     arch="$(uname -m)"; \
@@ -189,9 +196,14 @@ RUN set -eux; \
     rm -rf /tmp/yq
 
 # Layer 7: duckdb CLI
-ARG DUCKDB_VERSION=v1.5.6
-ARG DUCKDB_SHA256_AMD64=6e89deac1ebbc36eed0291caf8b567b030c7b86ac35998f71854e22b3c5d5e2f
-ARG DUCKDB_SHA256_ARM64=c544e92c9b7c31fc53c2139802cabd8e2d1b2b3e3f933117f31611239c1402db
+#
+# From 2.0 the CLI ships as duckdb-cli-linux-<arch>.tar.gz (the duckdb binary at the top), no longer as a zip.
+# renovate: datasource=github-releases depName=duckdb/duckdb
+ARG DUCKDB_VERSION=v2.0.0
+# sha256: https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb-cli-linux-amd64.tar.gz
+ARG DUCKDB_SHA256_AMD64=c6507206baf7793c6013dbd82368469a45f20dc0e17a6f92f204602f652ed2bc
+# sha256: https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb-cli-linux-arm64.tar.gz
+ARG DUCKDB_SHA256_ARM64=859e1875d2a9515fbb4bf8871061437a14af82320da68c753f094c4b776348fe
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -199,17 +211,19 @@ RUN set -eux; \
       aarch64) ddbarch=arm64; sha="${DUCKDB_SHA256_ARM64}" ;; \
       *) echo "Unsupported architecture: ${arch}"; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb_cli-linux-${ddbarch}.zip" \
-      -o /tmp/duckdb.zip; \
-    echo "${sha}  /tmp/duckdb.zip" | sha256sum -c -; \
-    unzip -q /tmp/duckdb.zip -d /usr/local/bin; \
+    curl -fsSL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb-cli-linux-${ddbarch}.tar.gz" \
+      -o /tmp/duckdb.tgz; \
+    echo "${sha}  /tmp/duckdb.tgz" | sha256sum -c -; \
+    tar -xz -C /usr/local/bin -f /tmp/duckdb.tgz duckdb; \
     chmod 0755 /usr/local/bin/duckdb; \
-    rm -f /tmp/duckdb.zip
+    rm -f /tmp/duckdb.tgz
 
 # Layer 8: jsonnet / jsonnetfmt (go-jsonnet)
 #
 # Make it possible to run this repo's own `make generate / fmt / check` inside the container.
 # go-jsonnet is built from source with the Go from Layer 4. The build cache is discarded to keep the image small.
+# The same version is installed by both workflows (.github/workflows/), so generated files compare byte for byte.
+# renovate: datasource=github-releases depName=google/go-jsonnet
 ARG JSONNET_VERSION=v0.22.0
 RUN set -eux; \
     GOBIN=/usr/local/bin go install \
@@ -221,9 +235,12 @@ RUN set -eux; \
     jsonnetfmt --version
 
 # Layer 9: AWS CLI v2
-ARG AWSCLI_VERSION=2.38.1
-ARG AWSCLI_SHA256_X86_64=b11ed416d91f4251da363a17706938eeaf0e520745754c104c0c1890dd8363c7
-ARG AWSCLI_SHA256_AARCH64=91360c0adb2ae508334ff657dce4787b598b443a11cf3dc58e08b74f12e16009
+# renovate: datasource=github-tags depName=aws/aws-cli
+ARG AWSCLI_VERSION=2.39.0
+# sha256: https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip
+ARG AWSCLI_SHA256_X86_64=6c89ce7ed7bc0a2520e2bc3eeedfea4e2eb2e7da2836860c9471871408404036
+# sha256: https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${AWSCLI_VERSION}.zip
+ARG AWSCLI_SHA256_AARCH64=05da9395b4d148c42e959192650bf4a7cbb59ea275fa334d0936c593c27b946f
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -240,7 +257,8 @@ RUN set -eux; \
     aws --version
 
 # Layer 10: uv / uvx (Python package & project manager)
-ARG UV_VERSION=0.13.1
+# renovate: datasource=github-releases depName=astral-sh/uv
+ARG UV_VERSION=0.13.6
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -268,7 +286,9 @@ RUN set -eux; \
 # and ~/.codex is a volume / host bind, so putting the binary there diverges for the same reason the claude binary
 # is not a volume. The version extracted to /opt/codex is authoritative; to update, bump CODEX_VERSION and rebuild.
 # Verified with codex-package_SHA256SUMS from the same release (even with --ignore-missing, it fails if nothing was verified).
-ARG CODEX_VERSION=rust-v0.163.0
+# The versioning regex skips pre-release tags (rust-v<x.y.z>-alpha.N).
+# renovate: datasource=github-releases depName=openai/codex versioning=regex:^rust-v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
+ARG CODEX_VERSION=rust-v0.165.0
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -295,10 +315,14 @@ RUN set -eux; \
 # and extracted to ~/.volta/bin (that is all the installer does; the shell profile rewrite was already disabled
 # with --skip-setup). PATH is set via ENV (shims resolve from non-interactive shells too). In projects that pin a version
 # with volta.node in package.json, the shim follows that. The aarch64 archive name is `linux-arm`.
+# renovate: datasource=github-releases depName=volta-cli/volta extractVersion=^v(?<version>.+)$
 ARG VOLTA_VERSION=2.0.2
+# sha256: https://github.com/volta-cli/volta/releases/download/v${VOLTA_VERSION}/volta-${VOLTA_VERSION}-linux.tar.gz
 ARG VOLTA_SHA256_X86_64=6cec054c911fb925b629a09455775af6e95dc0f5694a4c28b63979ab9ef18037
+# sha256: https://github.com/volta-cli/volta/releases/download/v${VOLTA_VERSION}/volta-${VOLTA_VERSION}-linux-arm.tar.gz
 ARG VOLTA_SHA256_AARCH64=1eb92f8b711753aa576352b2e580b2f3fdadeab8664929ca1da3d0de65448517
-ARG NODE_VERSION=24.22.0
+# renovate: datasource=node-version depName=node versioning=node
+ARG NODE_VERSION=26.13.0
 ENV VOLTA_HOME=/home/${USERNAME}/.volta
 ENV PATH=${VOLTA_HOME}/bin:$PATH
 RUN set -eux; \
@@ -374,8 +398,11 @@ RUN set -eux; \
 # Layer 15: D2 (CLI for the diagram description language)
 #
 # Use the distributed binary instead of building from source (keeps the bundled layout engines identical to the release).
+# renovate: datasource=github-releases depName=terrastruct/d2
 ARG D2_VERSION=v0.9.0
+# sha256: https://github.com/terrastruct/d2/releases/download/${D2_VERSION}/d2-${D2_VERSION}-linux-amd64.tar.gz
 ARG D2_SHA256_AMD64=5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9
+# sha256: https://github.com/terrastruct/d2/releases/download/${D2_VERSION}/d2-${D2_VERSION}-linux-arm64.tar.gz
 ARG D2_SHA256_ARM64=ac2c028697199479acb321db1e3d68caee9f2ba492ed73caa3cd13f3829bf913
 RUN set -eux; \
     arch="$(uname -m)"; \

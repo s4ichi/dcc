@@ -71,6 +71,7 @@ If the agent container is taken over:
 - Rootless constraints: without systemd, cgroup v2 delegation is unavailable, so `--memory` / `--cpus` / `--pids-limit` are ignored (warning only). `--privileged` / `--cap-add SYS_ADMIN` in inner containers are only CAPs inside the userns and cannot touch devices or kernel parameters. overlay2 runs on fuse-overlayfs or userns-aware kernel overlay, and performance is lower than the host's Docker
 - Inner containers cannot connect to services in the agent container via something like `host.docker.internal`. Either use the IP of the agent container's netns over a Docker network, or listen on `0.0.0.0` in the agent container and connect via the sidecar's IP
 - The image is pinned as `docker:<ver>-dind-rootless@sha256:<index digest>` (the default in `template.jsonnet`; since it is the only privileged
-  container, this keeps its contents from changing unnoticed under a floating tag). To bump it,
-  get the index digest with `docker buildx imagetools inspect docker:<ver>-dind-rootless`, align the defaults in `template.jsonnet` / `.env.example` /
-  [customization.md](customization.md), and run `make generate`. Users can change it with `DCC_DIND_IMAGE`. After a change, run `dcc recreate`
+  container, this keeps its contents from changing unnoticed under a floating tag). Renovate opens the bump PR: it rewrites the tag
+  and the index digest in `template.jsonnet` / `.env.example` and runs `make generate` ([architecture.md](architecture.md#dependency-updates)).
+  To bump by hand, get the index digest with `docker buildx imagetools inspect docker:<ver>-dind-rootless`, rewrite the same two places, and run
+  `make generate`. Users can change it with `DCC_DIND_IMAGE`. After a change, run `dcc recreate`

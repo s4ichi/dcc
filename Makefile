@@ -2,9 +2,9 @@ JSONNET ?= jsonnet
 SRC := template.jsonnet
 OUT := docker-compose.yml docker-compose.workspace.yml docker-compose.base-image.yml capabilities/*/compose.yml
 # lib/*.sh is followed by -x via the source directives in dcc (# shellcheck source=), so it is not listed separately
-SCRIPTS := dcc lifecycle_hooks/*.sh capabilities/gpg/*.sh capabilities/*/agent/*.sh test/helpers/*.bash test/e2e/*.bash
+SCRIPTS := dcc scripts/*.sh lifecycle_hooks/*.sh capabilities/gpg/*.sh capabilities/*/agent/*.sh test/helpers/*.bash test/e2e/*.bash
 
-.PHONY: all generate fmt check lint test test-sh test-py e2e clean
+.PHONY: all generate sha256 fmt check lint test test-sh test-py e2e clean
 
 all: generate
 
@@ -13,6 +13,10 @@ all: generate
 generate:
 	$(JSONNET) -S -e "std.join('\n', std.objectFields(import '$(SRC)'))" | xargs -n1 dirname | sort -u | xargs mkdir -p
 	$(JSONNET) -S -m . $(SRC)
+
+# Recompute the sha256 ARGs of the Dockerfile from their `# sha256: <url>` comments (Renovate runs it after a bump)
+sha256:
+	scripts/update-sha256.sh Dockerfile
 
 fmt:
 	jsonnetfmt -i $(SRC)

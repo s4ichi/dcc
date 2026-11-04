@@ -1,7 +1,7 @@
 # AWS credential sidecar.
 # The official AWS CLI v2 image (Amazon Linux 2023) ships /usr/bin/python3, so
 # a stdlib-only HTTP server runs without installing anything extra.
-FROM public.ecr.aws/aws-cli/aws-cli:2.36.34
+FROM public.ecr.aws/aws-cli/aws-cli:2.39.3
 
 COPY server.py /server.py
 

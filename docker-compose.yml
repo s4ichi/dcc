@@ -3,7 +3,7 @@ services:
     build:
       args:
         BASE_IMAGE: "${DCC_BASE_IMAGE:-dcc:base}"
-        GO_VERSION: "${DCC_GO_VERSION:-1.26.3}"
+        GO_VERSION: "${DCC_GO_VERSION:-1.27.3}"
         USERNAME: "${DCC_USER:-agent}"
         USER_GID: "${DCC_GID:-${DCC_UID:-1000}}"
         USER_UID: "${DCC_UID:-1000}"
@@ -58,7 +58,7 @@ services:
   docker:
     environment:
       DOCKER_TLS_CERTDIR: "/certs"
-    image: "${DCC_DIND_IMAGE:-docker:29.9.2-dind-rootless@sha256:ae083cc7de51e7a8e5a597f8fb774ca7914c408a95fc0f1477826a913479518a}"
+    image: "${DCC_DIND_IMAGE:-docker:29.9.3-dind-rootless@sha256:8ab74b2756666a4cf56056e9595c63798506ae7122a525f1c61612610f496481}"
     privileged: true
     sysctls:
       net.ipv4.ip_unprivileged_port_start: 0

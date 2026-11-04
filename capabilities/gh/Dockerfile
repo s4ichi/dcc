@@ -9,8 +9,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Expiring credentials need 2.103.0 or later, so pin a version instead of using apt's stable.
-# To bump it, rewrite the ARG default. Verified with the checksums from the same release
-ARG GH_VERSION=2.103.0
+# Renovate bumps it (renovate.json). Verified with the checksums from the same release
+# renovate: datasource=github-releases depName=cli/cli extractVersion=^v(?<version>.+)$
+ARG GH_VERSION=2.103.3
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \

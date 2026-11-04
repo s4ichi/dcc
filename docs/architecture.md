@@ -139,8 +139,8 @@ Versions of tools fetched from GitHub Releases and the like are pinned by the de
 `D2_VERSION` / `CLAUDE_CODE_VERSION`), never `latest` (the same Dockerfile yields the same versions on every build).
 Downloads are verified with sha256: those whose distributor publishes a checksum file (Go / `yq` / `uv` / Codex) are
 checked against it (same origin, so what it detects is corruption and replacement in transit); those without one (`duckdb` / AWS CLI / Volta /
-`d2` / Claude Code's `install.sh`) carry the sha256 in an `ARG` (`*_SHA256_*`). To bump, rewrite the defaults of the version and the
-sha256. Things installed with apt (Docker CLI / `gh` / Corretto / Debian packages) are left to apt's signature verification and not pinned.
+`d2` / Claude Code's `install.sh`) carry the sha256 in an `ARG` (`*_SHA256_*`). Renovate opens the bump PRs ("Dependency updates"
+below). Things installed with apt (Docker CLI / `gh` / Corretto / Debian packages) are left to apt's signature verification and not pinned.
 Claude Code's image version is pinned with `CLAUDE_CODE_VERSION`, but `claude update` in postCreate updates it to the latest in the container layer.
 
 | Layer | Contents |
@@ -173,6 +173,34 @@ that does `FROM dcc:base`. When `dcc` finds it, it first builds this repository'
 Dockerfile as `DCC_BASE_IMAGE`, and uses the output of `local/Dockerfile` as `DCC_IMAGE` for
 the agent container (it tells compose by exporting `DCC_BUILD_CONTEXT` / `DCC_DOCKERFILE`;
 [customization.md](customization.md)).
+
+### Dependency updates
+
+The Renovate CLI runs weekly from GitHub Actions ([`.github/workflows/renovate.yml`](../.github/workflows/renovate.yml),
+and by hand with `workflow_dispatch`) and opens one PR per dependency. The configuration is [`renovate.json`](../renovate.json).
+A release is proposed only once it is 7 days old (`minimumReleaseAge` with `internalChecksFilter: strict`: a younger
+release is skipped in favour of the newest one past the wait, not opened as a pending PR), so a broken or pulled
+release has time to surface first. Claude Code is the exception and is taken as soon as it is out. Datasources that
+give no release time (the ECR image of the aws sidecar) are not held back.
+
+| What | Where | How Renovate finds it |
+|---|---|---|
+| Tool versions | `ARG *_VERSION` in `Dockerfile` / `capabilities/gh/Dockerfile`, `JSONNET_VERSION` in the workflows | A `# renovate: datasource=… depName=…` comment directly above the line. `test/compose.bats` fails if a pinned version has none |
+| Base images | `FROM` of the sidecar Dockerfiles (`public.ecr.aws/aws-cli/aws-cli:<ver>`) | Built-in `dockerfile` manager. `debian:bookworm-slim` is a floating tag and is not bumped |
+| Docker sidecar image | `DCC_DIND_IMAGE` default in `template.jsonnet` / `.env.example` (tag and index digest) | A regex in `renovate.json`; then `make generate` rewrites the generated compose files in the same PR |
+| Go | `GO_VERSION` in `Dockerfile` and `DCC_GO_VERSION` in `template.jsonnet` / `.env.example` | Annotation and a regex; same dependency name, so one PR updates all three |
+| Actions | `uses:` pinned by commit SHA with the tag in a comment | Built-in `github-actions` manager (SHA and comment together) |
+
+For the tools whose sha256 is pinned in an `ARG` (`duckdb` / AWS CLI / Volta / `d2`), each `*_SHA256_*` has a
+`# sha256: <url>` comment above it, and Renovate runs `make sha256` ([`scripts/update-sha256.sh`](../scripts/update-sha256.sh))
+after the bump: it expands `${VAR}` in the URL from the file's `ARG` defaults, downloads it, and rewrites the value, so the
+new hashes are in the same PR. The script knows nothing about the tools; a new one only needs the comment. It is the
+same trust as running `curl | sha256sum` by hand at bump time: the hash is still pinned in git and shows in the PR diff.
+A release that renames its download (as `duckdb` 2.0 did) fails `make sha256` and needs the URL fixed by hand.
+Claude Code's `install.sh` has no such comment on purpose: its sha256 is not tied to the version, and a changed script
+should be read before it is trusted, so it shows up as a failing build. The run needs the `RENOVATE_TOKEN` secret: a fine-grained token for this repository with Contents, Pull requests,
+Issues (the dependency dashboard) and Workflows (Action bumps) read/write. A token is used instead of `GITHUB_TOKEN`
+because PRs opened with `GITHUB_TOKEN` do not start the `test` workflow, and the e2e build is what checks a bump.
 
 ## Lifecycle hooks
 
