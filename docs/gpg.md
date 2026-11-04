@@ -42,7 +42,7 @@ If the agent container is taken over:
 |---|---|---|---|
 | `~/.gnupg/private-keys-v1.d/` (`DCC_GNUPG_DIR`) | `/host-keys/` in `gpg-signer` | ro | Source for copying the signing key's keygrip files (**not mounted into the agent container**) |
 | `<repo>/capabilities/gpg/gnupg-host/` (`DCC_GPG_EXPORT_DIR`) | `/gnupg-host/` in `gpg-signer`, `~/.gnupg-host/` in the agent container | ro | `pubkeys.asc` / `ownertrust.txt` / `keygrips.txt` / `signing-key.txt` exported by the host-side preprocessing |
-| `<repo>/capabilities/gpg/gpg-sign-client.sh` | `/usr/local/lib/dcc/gpg-sign-client.sh` in the agent container | ro | `gpg.program` wrapper |
+| `<repo>/capabilities/gpg/agent/` (`gpg-sign-client.sh`) | `/usr/local/lib/dcc/gpg/` in the agent container | ro | `gpg.program` wrapper. Bound as a directory so updates of the file reach the container ([boundaries.md](boundaries.md)) |
 | (none) | `/root/.gnupg/` in `gpg-signer` | local | Keyring built by the entrypoint |
 | (none) | `~/.gnupg/` in the agent container | local | **Verification-only** keyring built by postCreate |
 

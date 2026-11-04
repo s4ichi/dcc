@@ -42,7 +42,7 @@ The sidecar runs nothing but its own `server.py`, and its access log contains on
 
 ```
  agent (agent container)                            gh-token (sidecar, unprivileged)
-  /usr/local/bin/gh = gh-token-client.sh             python3 /server.py listens on 127.0.0.1:8082
+  gh (first on PATH) = gh-token-client.sh            python3 /server.py listens on 127.0.0.1:8082
    GH_TOKEN=<GET /token> exec /usr/bin/gh     ──►     GET /token
   git: credential.https://github.com.helper            └─ gh auth token --hostname $GH_HOST
    = gh-token-client.sh git-credential        ──►        (refresh if near expiry; serialized by refresh.lock)
@@ -53,7 +53,7 @@ The sidecar runs nothing but its own `server.py`, and its access log contains on
 | Item | Destination | Mode |
 |---|---|---|
 | volume `dcc-gh-home` (`DCC_GH_HOME_VOLUME`) | sidecar `/home/gh/.config/gh` | rw |
-| `<repo>/capabilities/gh/gh-token-client.sh` | agent container `/usr/local/lib/dcc/gh-token-client.sh`, `/usr/local/bin/gh` | ro |
+| `<repo>/capabilities/gh/agent/` (`gh-token-client.sh` and the symlink `gh` to it) | agent container `/usr/local/lib/dcc/gh/`, which the image puts first on `PATH` | ro |
 | access token | agent container (HTTP; not left in environment variables / files) | — |
 
 ### Setup

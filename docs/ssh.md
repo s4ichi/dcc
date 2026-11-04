@@ -31,18 +31,18 @@ If the agent container is taken over:
 - **Do not bind the host's `~/.ssh`**: the host's private keys are tied to all personal access. Too much authority to hand to Claude Code in a container
 - **Do not use agent forwarding**: the Unix socket of macOS's `ssh-agent` (Keychain integration) cannot cross the Docker VM boundary. It needs extra setup and has no guarantee of always working
 - **Pass the key as is**: unlike signing (gpg) or AWS, SSH has no cheap form of "delegated execution". Instead, restrict the permissions of the key that is passed
-- **Inject connection settings and host keys into `/etc/ssh`**: pinning GitHub's host keys in `/etc/ssh/ssh_known_hosts` avoids the first-connection confirmation prompt and avoids writing to `~/.ssh/known_hosts`. A `git push` from Claude Code's Bash tool, which has no TTY, does not stall there. Since no writes are needed, `~/.ssh` can be ro
+- **Inject connection settings and host keys into `/etc/ssh`**: pinning GitHub's host keys (`GlobalKnownHostsFile` of the GitHub host) avoids the first-connection confirmation prompt and avoids writing to `~/.ssh/known_hosts`. A `git push` from Claude Code's Bash tool, which has no TTY, does not stall there. Since no writes are needed, `~/.ssh` can be ro
 
 ## How it works
 
 | Host side | Container side | Mode | Tracked |
 |---|---|---|---|
-| `<repo>/capabilities/ssh/config` (`DCC_SSH_CONFIG`) | `/etc/ssh/ssh_config.d/github.conf` | ro | yes |
-| `<repo>/capabilities/ssh/known_hosts` (`DCC_SSH_KNOWN_HOSTS`) | `/etc/ssh/ssh_known_hosts` | ro | yes |
+| `<repo>/capabilities/ssh/conf/` (`DCC_SSH_CONF_DIR`) | `/etc/ssh/dcc/` | ro | yes |
 | `<repo>/capabilities/ssh/data/` (`DCC_SSH_DIR`) | `/home/agent/.ssh/` | ro | no (gitignored) |
 
-- `config`: `User git` / `IdentityFile ~/.ssh/id_ed25519` / `IdentitiesOnly yes` for `Host github.com`. Debian's `/etc/ssh/ssh_config` does `Include /etc/ssh/ssh_config.d/*.conf`, so it takes effect without extra settings
-- `known_hosts`: GitHub's host keys (`ssh_keys` from `https://api.github.com/meta`)
+- `conf/github.conf`: `User git` / `IdentityFile ~/.ssh/id_ed25519` / `IdentitiesOnly yes` / `GlobalKnownHostsFile /etc/ssh/dcc/known_hosts` for `Host github.com`. The image has `/etc/ssh/ssh_config.d/dcc.conf` = `Include /etc/ssh/dcc/*.conf` (Debian's `/etc/ssh/ssh_config` includes `ssh_config.d/*.conf`); without the module the directory is absent and the include matches nothing
+- `conf/known_hosts`: GitHub's host keys (`ssh_keys` from `https://api.github.com/meta`)
+- `conf/` is bound as a directory, not file by file: a single-file bind keeps the inode it was given, so after `git pull` (or an editor's save) replaces a file the container would keep the old one ([boundaries.md](boundaries.md)). To use other settings, point `DCC_SSH_CONF_DIR` at a directory with the same two files
 - `data/`: only the private key `id_ed25519` (and `.pub`). If you place a `~/.ssh/config`, it takes precedence over the system config as personal settings (ssh uses the first value found)
 
 ### Setup
@@ -58,15 +58,15 @@ Do this on the host with this repository (`<repo>`) as the current directory.
 2. Register the public key (`id_ed25519.pub`) on GitHub **as a deploy key or as a key of a dedicated account**. Limit write access to only the repositories that need it
 3. Start with `dcc --creds ssh` (`dcc recreate --creds ssh` if a container already exists) and confirm that `ssh -T git@github.com` works inside the container
 
-If you rename the key, update `IdentityFile` in `config` to match. `initialize.sh ssh` warns in advance if `data/` is missing.
+If you rename the key, update `IdentityFile` in `conf/github.conf` to match. `initialize.sh ssh` warns in advance if `data/` is missing.
 
 ### Updating host keys
 
 If GitHub rotates its host keys, regenerate `known_hosts` and commit it:
 
 ```bash
-curl -sS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com \(.)"' > capabilities/ssh/known_hosts
-ssh-keygen -lf capabilities/ssh/known_hosts   # compare the fingerprints with GitHub's published ones
+curl -sS https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com \(.)"' > capabilities/ssh/conf/known_hosts
+ssh-keygen -lf capabilities/ssh/conf/known_hosts   # compare the fingerprints with GitHub's published ones
 ```
 
 ## Constraints and known holes
@@ -75,4 +75,4 @@ ssh-keygen -lf capabilities/ssh/known_hosts   # compare the fingerprints with Gi
 - Passphrase-protected keys cannot be used. There is no automatic `ssh-agent` startup in the container, and pinentry cannot be shown from the TTY-less Bash tool. Either use a key without a passphrase or add a mechanism equivalent to gpg's warming (not implemented)
 - SSH signing (`gpg.format = ssh`) is possible by setting this key as `user.signingkey`, but the warming mechanism assumes GPG
 - If an inner container needs SSH, the only way is to pass it explicitly via the workspace
-- `capabilities/ssh/data/` is gitignored; do not commit it. `config` and `known_hosts` are tracked but contain only GitHub's public information
+- `capabilities/ssh/data/` is gitignored; do not commit it. `conf/` is tracked but contains only GitHub's public information

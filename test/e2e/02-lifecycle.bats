@@ -37,6 +37,10 @@ on_tty() {
   run in_agent bash -c 'env | grep -E "^(DCC_GPG_SIGN_URI|DCC_GH_TOKEN_URI|AWS_CONTAINER_CREDENTIALS_FULL_URI|GIT_CONFIG_)" || true'
   [ -z "$output" ]
   [ "$(docker inspect --format '{{index .Config.Labels "dcc.credentials"}}' "$FIRST_ID")" = "" ]
+  # The image's module hooks are no-ops: plain gh, and ssh still parses its config
+  [ "$(in_agent bash -c 'command -v gh')" = /usr/bin/gh ]
+  in_agent test ! -e /usr/local/lib/dcc/gh
+  in_agent ssh -G github.com >/dev/null
 }
 
 @test "up --no-creds: ~/.claude and ~/.codex are the shared external volumes, owned by the container user" {

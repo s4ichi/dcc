@@ -79,6 +79,11 @@ local volume(source, target, readonly=false) = {
 // Bind target of lifecycle_hooks/. postCreate runs from here (same value as REMOTE_HOOKS_DIR in dcc)
 local hooksDir = '/usr/local/lib/dcc/hooks';
 
+// Files of this repository are bound as directories that hold only what the agent container may see
+// (capabilities/<module>/agent, capabilities/ssh/conf). A single-file bind pins the file's inode, so git pull / checkout
+// or an editor's save, which replace the file, would leave the container on the old (or vanished) file. docs/boundaries.md
+local moduleLibDir(name) = '/usr/local/lib/dcc/' + name;
+
 // Bound at the same path into the agent container and the sidecar. The sidecar's dockerd resolves `docker run -v /workspaces/...`
 local workspaceMount = bind(workspaceSource, workspaceTarget) { consistency: 'cached' };
 
@@ -92,17 +97,16 @@ local awsProfile = '${DCC_AWS_PROFILE:-${AWS_PROFILE:-default}}';
 local gpgSignerPort = '${DCC_GPG_SIGNER_PORT:-8081}';
 local gnupgDir = '${DCC_GNUPG_DIR:-${GNUPGHOME:-${HOME}/.gnupg}}';
 local gpgExportDir = '${DCC_GPG_EXPORT_DIR:-' + configDir + '/capabilities/gpg/gnupg-host}';
-local gpgSignClient = '/usr/local/lib/dcc/gpg-sign-client.sh';
+local gpgSignClient = moduleLibDir('gpg') + '/gpg-sign-client.sh';
 
 local sshDir = '${DCC_SSH_DIR:-' + configDir + '/capabilities/ssh/data}';
-local sshConfig = '${DCC_SSH_CONFIG:-' + configDir + '/capabilities/ssh/config}';
-local sshKnownHosts = '${DCC_SSH_KNOWN_HOSTS:-' + configDir + '/capabilities/ssh/known_hosts}';
+// github.conf + known_hosts. The image includes /etc/ssh/dcc/*.conf from ssh_config.d
+local sshConfDir = '${DCC_SSH_CONF_DIR:-' + configDir + '/capabilities/ssh/conf}';
 // gh state (refresh token) lives in a fixed-name external volume shared by the gh-token sidecars of all workspaces
 // (so the flock on refresh.lock reliably takes effect; dcc creates it). The agent container only gets access tokens
 local ghTokenPort = '${DCC_GH_TOKEN_PORT:-8082}';
 local ghHost = '${DCC_GH_HOST:-github.com}';
 local ghHomeVolume = '${DCC_GH_HOME_VOLUME:-dcc-gh-home}';
-local ghClient = '/usr/local/lib/dcc/gh-token-client.sh';
 
 // Credential modules. Only those selected with `dcc --creds <name>,...` are passed as overlays.
 // The key becomes the directory name capabilities/<name>/. docs/credentials.md
@@ -178,7 +182,7 @@ local credModules = {
         depends_on: { 'gpg-signer': { condition: 'service_started' } },
         volumes: [
           bind(gpgExportDir, remoteHome + '/.gnupg-host', readonly=true),
-          bind(configDir + '/capabilities/gpg/gpg-sign-client.sh', gpgSignClient, readonly=true),
+          bind(configDir + '/capabilities/gpg/agent', moduleLibDir('gpg'), readonly=true),
         ],
       },
       'gpg-signer': {
@@ -200,8 +204,7 @@ local credModules = {
       agent: {
         volumes: [
           bind(sshDir, remoteHome + '/.ssh', readonly=true),
-          bind(sshConfig, '/etc/ssh/ssh_config.d/github.conf', readonly=true),
-          bind(sshKnownHosts, '/etc/ssh/ssh_known_hosts', readonly=true),
+          bind(sshConfDir, '/etc/ssh/dcc', readonly=true),
         ],
       },
     },
@@ -218,9 +221,9 @@ local credModules = {
         },
         depends_on: { 'gh-token': { condition: 'service_started' } },
         volumes: [
-          bind(configDir + '/capabilities/gh/gh-token-client.sh', ghClient, readonly=true),
-          // Placed as a wrapper where it is found on PATH before /usr/bin/gh
-          bind(configDir + '/capabilities/gh/gh-token-client.sh', '/usr/local/bin/gh', readonly=true),
+          // The image puts this directory first on PATH, so its gh (a symlink to gh-token-client.sh) is found
+          // before /usr/bin/gh. Without the module the directory does not exist and plain gh runs
+          bind(configDir + '/capabilities/gh/agent', moduleLibDir('gh'), readonly=true),
         ],
       },
       'gh-token': {

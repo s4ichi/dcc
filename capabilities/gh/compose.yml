@@ -8,12 +8,8 @@ services:
       DCC_GH_TOKEN_URI: "http://127.0.0.1:${DCC_GH_TOKEN_PORT:-8082}/token"
     volumes:
       - read_only: true
-        source: "${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh/gh-token-client.sh"
-        target: "/usr/local/lib/dcc/gh-token-client.sh"
-        type: "bind"
-      - read_only: true
-        source: "${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh/gh-token-client.sh"
-        target: "/usr/local/bin/gh"
+        source: "${DCC_CONFIG_DIR:-${HOME}/.config/dcc}/capabilities/gh/agent"
+        target: "/usr/local/lib/dcc/gh"
         type: "bind"
   gh-token:
     build:

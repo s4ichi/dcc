@@ -39,7 +39,9 @@ setup() {
   # Inside a dcc container with the gh module, the system config has the real helper; keep git to the test's config
   export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
   export DCC_GH_TOKEN_URI="http://127.0.0.1:$GH_PORT/token"
-  CLIENT="$REPO/capabilities/gh/gh-token-client.sh"
+  CLIENT="$REPO/capabilities/gh/agent/gh-token-client.sh"
+  # What the agent runs as gh (a symlink to the client, first on PATH in the image)
+  WRAPPER="$REPO/capabilities/gh/agent/gh"
 }
 
 credential() {
@@ -110,10 +112,17 @@ credential() {
 
 # --- gh wrapper ---------------------------------------------------------------
 
+@test "wrapper: gh in agent/ is the client, so the directory alone carries both roles" {
+  [ "$(readlink "$WRAPPER")" = gh-token-client.sh ]
+  [ -x "$WRAPPER" ]
+  # Nothing else for the agent container in the bound directory
+  [ "$(ls -A "$REPO/capabilities/gh/agent" | sort | paste -sd' ' -)" = "gh gh-token-client.sh" ]
+}
+
 @test "wrapper: changing the login from the agent container is refused" {
   local cmd
   for cmd in login logout refresh switch setup-git; do
-    run "$CLIENT" auth "$cmd"
+    run "$WRAPPER" auth "$cmd"
     [ "$status" -eq 1 ]
     [[ "$output" == *"gh credentials are managed by the gh-token sidecar; run 'dcc gh-login' on the host"* ]]
   done
@@ -121,7 +130,7 @@ credential() {
 
 @test "wrapper: runs the real gh with the fetched token in GH_TOKEN" {
   [ -x /usr/bin/gh ] || skip "/usr/bin/gh not installed"
-  run --separate-stderr "$CLIENT" auth token
+  run --separate-stderr "$WRAPPER" auth token
   [ "$status" -eq 0 ]
   [ "$output" = gho_dummy_token ]
 }
@@ -129,7 +138,7 @@ credential() {
 @test "wrapper: still runs gh when the sidecar has no token" {
   [ -x /usr/bin/gh ] || skip "/usr/bin/gh not installed"
   echo fail >"$GH_MODE_FILE"
-  run --separate-stderr "$CLIENT" --version
+  run --separate-stderr "$WRAPPER" --version
   [ "$status" -eq 0 ]
   [[ "$output" == "gh version "* ]]
   [[ "$stderr" == *"no usable token"* ]]

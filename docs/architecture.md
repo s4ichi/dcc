@@ -32,7 +32,7 @@ Run coding agents (Claude Code / Codex CLI) in a container isolated from the hos
 | `capabilities/claude/` | The `claude` module's overlay (binds of the host's `~/.claude` / `~/.claude.json`). [claude-code.md](claude-code.md) |
 | `capabilities/codex/` | The `codex` module's overlay (bind of the host's `~/.codex`). [codex.md](codex.md) |
 | `capabilities/aws/` | Image of the `aws` module's credential sidecar ([aws.md](aws.md)) |
-| `capabilities/gh/` | The `gh` module's token sidecar (`server.py` returns the result of `gh auth token`) and the agent-side client (`gh-token-client.sh`; both the `gh` wrapper and the git credential helper). [github.md](github.md) |
+| `capabilities/gh/` | The `gh` module's token sidecar (`server.py` returns the result of `gh auth token`) and the agent-side client in `agent/` (`gh-token-client.sh`; both the `gh` wrapper and the git credential helper). [github.md](github.md) |
 | `capabilities/ssh/data/`, `capabilities/gpg/gnupg-host/` | Gitignored. Host-side sources bound into containers ([boundaries.md](boundaries.md)). `capabilities/gh/data/` is the location used by the old scheme; only its gitignore entry is kept, to prevent accidental commits |
 
 ## Config generation flow

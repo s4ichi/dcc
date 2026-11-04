@@ -47,3 +47,6 @@ If the agent container is taken over:
 - If the host's `~/.gitconfig` has `credential.helper = osxkeychain`, the helper is not found inside the container and a warning is printed (not fatal). To push over HTTPS, enable the `gh` module (postCreate registers in system a credential helper that returns the gh-token sidecar's short-lived token, and it is queried first; [github.md](github.md))
 - With SSH signing (`gpg.format = ssh`), if `user.signingkey` points to the host's `~/.ssh/...`, that file does not exist in the container. Override it in the system gitconfig to point to the key from [ssh.md](ssh.md)
 - To use a container-specific identity, override it in the system gitconfig or in the workspace's `.git/config`
+- `~/.gitconfig` is a single-file bind. `git config --global` and many editors replace the file (write + rename) instead
+  of rewriting it, after which the container keeps the old file (on Docker Desktop it disappears) until `dcc recreate`
+  ([boundaries.md](boundaries.md), principle 6)

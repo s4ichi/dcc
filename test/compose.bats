@@ -154,6 +154,26 @@ generated_files() {
   [ "$(config | jq -r '.services.agent.volumes[] | select(.target == "/home/agent/.claude") | .type')" = volume ]
 }
 
+@test "repository files reach the containers as directories, never as single-file binds" {
+  # A single-file bind pins the inode; git pull / checkout replace the file and the container keeps the old one
+  local cfg src bad=""
+  cfg="$(config "${MODULES[@]}")"
+  while IFS= read -r src; do
+    [ -d "$src" ] || bad="$bad $src"
+  done < <(jq -r --arg repo "$REPO/" '.services[].volumes[]? | select(.type == "bind") | .source | select(startswith($repo))' <<<"$cfg")
+  [ -z "$bad" ] || { echo "single-file binds of repository files:$bad" >&2; return 1; }
+}
+
+@test "the only single-file binds into the agent are ~/.gitconfig and ~/.claude.json.host" {
+  # Everything else from the host is a directory (the workspace, ~/.claude, ~/.codex, module directories);
+  # ~/.claude.json.host is only read once by postCreate, ~/.gitconfig is a documented hole (docs/git.md)
+  local targets
+  targets="$(config "${MODULES[@]}" | jq -r '.services.agent.volumes[] | select(.type == "bind") | .target' | sort)"
+  [ "$targets" = "$(printf '%s\n' /etc/ssh/dcc /home/agent/.claude /home/agent/.claude.json.host /home/agent/.codex \
+    /home/agent/.gitconfig /home/agent/.gnupg-host /home/agent/.ssh /usr/local/lib/dcc/gh /usr/local/lib/dcc/gpg \
+    /usr/local/lib/dcc/hooks /workspaces/proj | sort)" ]
+}
+
 @test "compose files reference repository files only through DCC_CONFIG_DIR (no relative paths)" {
   local volumes value bad=""
   # Named volumes (the keys of the top-level volumes:) are the only sources that are not paths. Volumes a module
