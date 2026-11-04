@@ -159,7 +159,8 @@ generated_files() {
   local cfg src bad=""
   cfg="$(config "${MODULES[@]}")"
   while IFS= read -r src; do
-    [ -d "$src" ] || bad="$bad $src"
+    # Missing ones are gitignored directories made at run time (gnupg-host, ssh/data)
+    [ ! -f "$src" ] || bad="$bad $src"
   done < <(jq -r --arg repo "$REPO/" '.services[].volumes[]? | select(.type == "bind") | .source | select(startswith($repo))' <<<"$cfg")
   [ -z "$bad" ] || { echo "single-file binds of repository files:$bad" >&2; return 1; }
 }
