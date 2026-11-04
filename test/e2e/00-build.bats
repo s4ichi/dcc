@@ -28,6 +28,18 @@ setup() {
   done
 }
 
+@test "docker sidecar: the pinned index has both linux/amd64 and linux/arm64" {
+  # Official images publish one architecture at a time; a digest taken mid-way pins an index missing one of them.
+  # CI runs on amd64 only, so an index without arm64 would pass everything else and break arm64 hosts
+  local ref
+  ref="$(grep -oE 'docker:[^@}]+@sha256:[0-9a-f]{64}' "$REPO/template.jsonnet")"
+  run docker buildx imagetools inspect --raw "$ref"
+  [ "$status" -eq 0 ] || { printf '%s\n' "$output" >&2; return 1; }
+  run jq -r '[.manifests[].platform | "\(.os)/\(.architecture)"] | join(" ")' <<<"$output"
+  [[ " $output " == *" linux/amd64 "* ]] || { echo "$ref: no linux/amd64 in [$output]" >&2; return 1; }
+  [[ " $output " == *" linux/arm64 "* ]] || { echo "$ref: no linux/arm64 in [$output]" >&2; return 1; }
+}
+
 @test "agent image: the container user, owning its home volumes' mount points; no sudo, no dockerd" {
   run docker run --rm --entrypoint bash dcc-e2e:local -c '
     id -un; id -u
