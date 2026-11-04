@@ -44,7 +44,7 @@ local dockerfile = '${DCC_DOCKERFILE:-Dockerfile}';
 // The only privileged container, so pin it by digest (the tag is for readability; pull is decided by the digest).
 // Renovate bumps the tag and the index digest here and in .env.example together (renovate.json), then runs
 // `make generate`. Keep the `DCC_DIND_IMAGE:-docker:<tag>@sha256:<digest>` shape it matches. docs/docker.md
-local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.3-dind-rootless@sha256:8ab74b2756666a4cf56056e9595c63798506ae7122a525f1c61612610f496481}';
+local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.3-dind-rootless@sha256:87e10120f2f9dd99ff78f30ff1e27a86b96ed1371e9bb50be7e96bfb00fd69b4}';
 local goVersion = '${DCC_GO_VERSION:-1.27.3}';
 
 local buildArgs = {

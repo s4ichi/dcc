@@ -187,7 +187,7 @@ give no release time (the ECR image of the aws sidecar) are not held back.
 |---|---|---|
 | Tool versions | `ARG *_VERSION` in `Dockerfile` / `capabilities/gh/Dockerfile`, `JSONNET_VERSION` in the workflows | A `# renovate: datasource=… depName=…` comment directly above the line. `test/compose.bats` fails if a pinned version has none |
 | Base images | `FROM` of the sidecar Dockerfiles (`public.ecr.aws/aws-cli/aws-cli:<ver>`) | Built-in `dockerfile` manager. `debian:bookworm-slim` is a floating tag and is not bumped |
-| Docker sidecar image | `DCC_DIND_IMAGE` default in `template.jsonnet` / `.env.example` (tag and index digest) | A regex in `renovate.json`; then `make generate` rewrites the generated compose files in the same PR |
+| Docker sidecar image | `DCC_DIND_IMAGE` default in `template.jsonnet` / `.env.example` (tag and index digest) | A regex in `renovate.json`; then `make generate` rewrites the generated compose files in the same PR. Official images publish one architecture at a time and re-publish existing tags, so a digest read mid-way can pin an index without amd64 or arm64 (the release-age wait does not help with a re-published tag); `00-build.bats` checks both are in it |
 | Go | `GO_VERSION` in `Dockerfile` and `DCC_GO_VERSION` in `template.jsonnet` / `.env.example` | Annotation and a regex; same dependency name, so one PR updates all three |
 | Actions | `uses:` pinned by commit SHA with the tag in a comment | Built-in `github-actions` manager (SHA and comment together) |
 
