@@ -164,7 +164,7 @@ RUN set -eux; \
 # install.sh itself verifies the binary against the checksum in the distributor's manifest. The sha256 changes when the
 # distributor updates install.sh, so if the build fails, re-fetch it with `curl -fsSL https://claude.ai/install.sh | sha256sum` and review the diff.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.318
+ARG CLAUDE_CODE_VERSION=2.1.319
 ARG CLAUDE_INSTALL_SHA256=3a68d3406cf674e17bed1733a4dcf37805e2e47d87417700007d7e1aa766a944
 RUN set -eux; \
     curl -fsSL -o /tmp/claude-install.sh https://claude.ai/install.sh; \
