@@ -236,11 +236,11 @@ RUN set -eux; \
 
 # Layer 9: AWS CLI v2
 # renovate: datasource=github-tags depName=aws/aws-cli
-ARG AWSCLI_VERSION=2.39.0
+ARG AWSCLI_VERSION=2.39.3
 # sha256: https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip
-ARG AWSCLI_SHA256_X86_64=6c89ce7ed7bc0a2520e2bc3eeedfea4e2eb2e7da2836860c9471871408404036
+ARG AWSCLI_SHA256_X86_64=14cb35809ad7547dd3c69fa9899a3975fbd850b6a6791f3fe264856490cd9a63
 # sha256: https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${AWSCLI_VERSION}.zip
-ARG AWSCLI_SHA256_AARCH64=05da9395b4d148c42e959192650bf4a7cbb59ea275fa334d0936c593c27b946f
+ARG AWSCLI_SHA256_AARCH64=f6eb845fbacb11bee87de3f5fbe8043773cbe89d0414607b44b71e216eb9226b
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
