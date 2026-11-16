@@ -258,7 +258,7 @@ RUN set -eux; \
 
 # Layer 10: uv / uvx (Python package & project manager)
 # renovate: datasource=github-releases depName=astral-sh/uv
-ARG UV_VERSION=0.13.6
+ARG UV_VERSION=0.13.7
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
