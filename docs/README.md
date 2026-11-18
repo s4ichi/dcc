@@ -22,7 +22,7 @@ Suggested reading order: to learn how it works, [architecture.md](architecture.m
 | File | Subject | Module | Host side | Container side |
 |---|---|---|---|---|
 | [gpg.md](gpg.md) | GPG signing key, public keys, passphrase | `gpg` | `~/.gnupg/private-keys-v1.d` + exported public keys | `gpg-signer` sidecar (the agent container delegates to the signing API) |
-| [aws.md](aws.md) | AWS credentials | `aws` | `~/.aws/config` + `~/.aws/login/cache` (ro to the sidecar) | Temporary credentials fetched via `AWS_CONTAINER_CREDENTIALS_FULL_URI` |
+| [aws.md](aws.md) | AWS credentials | `aws` | `~/.aws/config` (ro) + `~/.aws/login/cache` (rw), to the sidecar only | Temporary credentials fetched via `AWS_CONTAINER_CREDENTIALS_FULL_URI` |
 | [ssh.md](ssh.md) | SSH key, known_hosts | `ssh` | `<repo>/capabilities/ssh/data/` (gitignored) | `~/.ssh` (ro) |
 | [github.md](github.md) | Authentication for GitHub CLI (`gh`) and HTTPS git (expiring token) | `gh` | volume `dcc-gh-home` (written by `dcc gh-login`; rw to the `gh-token` sidecar) | Short-lived access token fetched on each use by the `gh` wrapper / git credential helper |
 | [git.md](git.md) | gitconfig, safe.directory, signing settings | always | `~/.gitconfig` | `~/.gitconfig` (ro) + system gitconfig |

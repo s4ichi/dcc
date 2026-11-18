@@ -145,6 +145,13 @@ generated_files() {
   jq -e '.services["gpg-signer"].volumes[] | select(.source == "/fake/home/.gnupg/private-keys-v1.d")' <<<"$cfg" >/dev/null
 }
 
+@test "aws-credentials: only the login cache is writable (the CLI writes refreshed tokens back)" {
+  local cfg
+  cfg="$(config "${MODULES[@]}")"
+  run jq -r '.services["aws-credentials"].volumes[] | select(.read_only != true) | .source' <<<"$cfg"
+  [ "$output" = /fake/home/.aws/login/cache ]
+}
+
 @test "the claude / codex modules override the home volumes; no other volume target is duplicated" {
   local f dups
   dups="$(for f in $(generated_files); do targets_of "$f"; done | sort | uniq -d)"

@@ -16,7 +16,7 @@
 | Axis | This design |
 |---|---|
 | What it can do | The agent container can only "obtain temporary credentials as one profile already logged in on the host". It cannot switch profiles (fixed at container creation) |
-| Reach | Nothing under `~/.aws` is mounted into the agent container. `config` and `login/cache` are passed ro only to the unprivileged `aws-credentials` sidecar. `credentials` (long-lived keys) and the SSO / CLI caches are passed nowhere |
+| Reach | Nothing under `~/.aws` is mounted into the agent container. `config` (ro) and `login/cache` (rw) are passed only to the unprivileged `aws-credentials` sidecar. `credentials` (long-lived keys) and the SSO / CLI caches are passed nowhere |
 | How the key is passed | **Delegated execution**. The sidecar runs `aws configure export-credentials`, and the agent container receives only expiring temporary credentials through the SDK's Container Credential Provider (`AWS_CONTAINER_CREDENTIALS_FULL_URI`). The sidecar fetches the credentials; the agent container only receives the result |
 
 ## What leaks on compromise
@@ -35,6 +35,7 @@ The sidecar runs nothing but its own `server.py`, and its access log contains on
 - **Do not bind `~/.aws` into the agent container**: even ro, every profile in `config` / `credentials` would be readable. The principle is not to bring long-lived keys into the container
 - **Shared netns + `127.0.0.1`**: the AWS SDK's Container Credential Provider allows `http://` endpoints only on loopback (127.0.0.1 / localhost / ::1) and the ECS/EKS link-local addresses. `http://aws-credentials:8080` over a dedicated network is a different netns and IP, so botocore rejects it with `Unsupported host`. Therefore the sidecar also joins the Docker sidecar's netns with `network_mode: service:docker`. As a consequence the endpoint is reachable only from inside the netns (`ports` cannot even be written)
 - **No caching in the sidecar**: the SDK caches on its own until `Expiration`, and login session management is left to the CLI. The sidecar only converts
+- **`login/cache` is rw to the sidecar**: the `aws login` access token lives 15 minutes. Once less than 5 minutes remain, the CLI refreshes it, gets a rotated refresh token, and writes both back to the cache file. With a ro bind that write fails, `export-credentials` exits non-zero, and the endpoint returns 503 until a CLI on the host happens to refresh the cache. The sidecar can already read the refresh token there, so rw adds only the ability to write that one directory on the host; nothing changes for the agent container
 - **`depends_on` is agent → aws-credentials**: both merely join the `docker` netns and do not depend on each other, so there is no cycle
 
 ## How it works
@@ -46,14 +47,14 @@ The sidecar runs nothing but its own `server.py`, and its access log contains on
   AWS_REGION                                    └─ aws configure export-credentials
                                                     --profile $AWS_PROFILE --format process
                                               mount: ~/.aws/config (ro)
-                                                     ~/.aws/login/cache (ro)
+                                                     ~/.aws/login/cache (rw)
         └───────── shared netns (both network_mode: service:docker) ─────────┘
 ```
 
 | Item | Destination | Mode |
 |---|---|---|
 | `~/.aws/config` (configurable with `DCC_AWS_DIR`) | sidecar `/root/.aws/config` | ro |
-| `~/.aws/login/cache` | sidecar `/root/.aws/login/cache` | ro |
+| `~/.aws/login/cache` | sidecar `/root/.aws/login/cache` | rw |
 | Temporary credentials (AccessKeyId / SecretAccessKey / Token / Expiration) | agent container (HTTP) | — |
 
 ### Setup
@@ -77,6 +78,7 @@ Inside the container, check with `aws sts get-caller-identity`.
   etc.; no `SessionToken` / `Expiration`), the endpoint returns 503 instead of handing a long-lived key to the agent container.
   Such a profile cannot be used with this module; use `aws login`, SSO or a role (the SDKs' container provider requires
   `Token` / `Expiration` anyway)
-- Because `~/.aws/login/cache` is ro, flows where the CLI must write back a refresh token may fail (unverified; if it becomes a problem, the trade-off is to make only `login/cache` rw)
+- The sidecar can write `~/.aws/login/cache` on the host (needed for the token refresh; see "Why this design"). A compromised sidecar could corrupt or delete the login session there; recover with `aws login`
+- The sidecar and the host's CLI refresh the same cache file without a lock, and the write is in place, not atomic. If both refresh at the same moment, one may read a half-written file or lose the rotated refresh token; a retry or `aws login` recovers
 - SSO profiles (`aws sso login`) and profiles that call an external command via `credential_process` do not work, since those files are not passed to the sidecar / the command is absent. Add them with `local/compose.yml` if needed
 - Inner containers cannot see the endpoint (they cannot reach the parent netns's `127.0.0.1`). The only way to give an inner container AWS permissions is to pass them explicitly, e.g. via environment variables

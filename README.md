@@ -41,7 +41,7 @@ and uses the compose configuration to decide not "what to allow" but "what the c
                               │          │ 127.0.0.1 (shared netns)                        │
   only if chosen by --creds:  │          ▼                                                 │
   ~/.gnupg signing key ─ ro ► │  gpg-signer (only signs commits / tags)                    │
-  ~/.aws login ── ro ───────► │  aws-credentials (only issues temporary credentials)       │
+  ~/.aws login ── rw ───────► │  aws-credentials (only issues temporary credentials)       │
   dcc gh-login ─► volume ───► │  gh-token (only issues access tokens that expire in hours) │
                               └────────────────────────────────────────────────────────────┘
 ```

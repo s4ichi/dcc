@@ -22,8 +22,7 @@ services:
         source: "${DCC_AWS_DIR:-${HOME}/.aws}/config"
         target: "/root/.aws/config"
         type: "bind"
-      - read_only: true
-        source: "${DCC_AWS_DIR:-${HOME}/.aws}/login/cache"
+      - source: "${DCC_AWS_DIR:-${HOME}/.aws}/login/cache"
         target: "/root/.aws/login/cache"
         type: "bind"
 

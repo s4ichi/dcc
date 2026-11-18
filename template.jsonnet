@@ -134,7 +134,8 @@ local credModules = {
         },
         volumes: [
           bind(awsDir + '/config', '/root/.aws/config', readonly=true),
-          bind(awsDir + '/login/cache', '/root/.aws/login/cache', readonly=true),
+          // rw: the CLI writes the refreshed (rotated) login token back here; ro makes every refresh fail. docs/aws.md
+          bind(awsDir + '/login/cache', '/root/.aws/login/cache'),
         ],
       },
     },

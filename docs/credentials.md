@@ -7,7 +7,7 @@ mounted into the agent container. If nothing is specified, not a single secret m
 
 | Module | What it passes | Mode | Side processing | Details |
 |---|---|---|---|---|
-| `aws` | temporary credentials (`~/.aws` is not mounted into the agent container) | HTTP | the `aws-credentials` sidecar issues them from `~/.aws/config` / `~/.aws/login/cache` (ro) | [aws.md](aws.md) |
+| `aws` | temporary credentials (`~/.aws` is not mounted into the agent container) | HTTP | the `aws-credentials` sidecar issues them from `~/.aws/config` (ro) / `~/.aws/login/cache` (rw) | [aws.md](aws.md) |
 | `gpg` | a signing API (the private key is only in the `gpg-signer` sidecar; the agent container gets only the public key and a `gpg.program` wrapper) | HTTP | `initialize.sh gpg` exports the public key, keygrip, and signing key on the host; after start, `capabilities/gpg/warm.sh` runs pinentry inside the sidecar (automatic with `dcc`) | [gpg.md](gpg.md) |
 | `ssh` | `./capabilities/ssh/data` → `~/.ssh`, `./capabilities/ssh/{config,known_hosts}` → `/etc/ssh` | ro | none | [ssh.md](ssh.md) |
 | `gh` | a short-lived access token (the refresh token is only in the `gh-token` sidecar; the agent container gets only a `gh` wrapper and a git credential helper) | HTTP | run `dcc gh-login` once on the host (state lives in the volume `dcc-gh-home`, shared by all workspaces; created by `dcc up` / `gh-login`) | [github.md](github.md) |

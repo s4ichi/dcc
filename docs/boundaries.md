@@ -87,7 +87,8 @@ Module sidecars (unprivileged):
 
 | sidecar | Host side | Container side | Mode |
 |---|---|---|---|
-| `aws-credentials` | `~/.aws/config`, `~/.aws/login/cache` | `/root/.aws/config`, `/root/.aws/login/cache` | ro |
+| `aws-credentials` | `~/.aws/config` | `/root/.aws/config` | ro |
+| `aws-credentials` | `~/.aws/login/cache` | `/root/.aws/login/cache` | rw (the CLI writes refreshed tokens back) |
 | `gpg-signer` | `~/.gnupg/private-keys-v1.d`, `<repo>/capabilities/gpg/gnupg-host` | `/host-keys`, `/gnupg-host` | ro |
 | `gh-token` | volume `dcc-gh-home` (`DCC_GH_HOME_VOLUME`, external, shared by all workspaces; written by `dcc gh-login`) | `/home/gh/.config/gh` | rw |
 
