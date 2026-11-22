@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 30
     env:
       # renovate: datasource=npm depName=renovate
-      RENOVATE_VERSION: 44.210.0
+      RENOVATE_VERSION: 44.239.1
       # Same go-jsonnet as the agent image, for `make generate` after a template.jsonnet bump
       # renovate: datasource=github-releases depName=google/go-jsonnet
       JSONNET_VERSION: v0.22.0
