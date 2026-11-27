@@ -44,8 +44,8 @@ local dockerfile = '${DCC_DOCKERFILE:-Dockerfile}';
 // The only privileged container, so pin it by digest (the tag is for readability; pull is decided by the digest).
 // Renovate bumps the tag and the index digest here and in .env.example together (renovate.json), then runs
 // `make generate`. Keep the `DCC_DIND_IMAGE:-docker:<tag>@sha256:<digest>` shape it matches. docs/docker.md
-local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.3-dind-rootless@sha256:87e10120f2f9dd99ff78f30ff1e27a86b96ed1371e9bb50be7e96bfb00fd69b4}';
-local goVersion = '${DCC_GO_VERSION:-1.27.3}';
+local dindImage = '${DCC_DIND_IMAGE:-docker:29.9.3-dind-rootless@sha256:707a099b8ddd86306eb28c8b1775264a3ee0135b16dc505b7b48ffb328edf8d0}';
+local goVersion = '${DCC_GO_VERSION:-1.27.4}';
 
 local buildArgs = {
   BASE_IMAGE: baseImage,
@@ -151,6 +151,12 @@ local credModules = {
           // A single-file bind makes Claude Code's atomic write (rename) fail with EXDEV, so
           // pass it ro and postCreate copies it to a container-local file
           bind(claudeJson, remoteHome + '/.claude.json.host', readonly=true),
+        ],
+        // The background service's state (control key, roster) is per machine: keep the host's out of the container,
+        // and give the container its own. The service also refuses a directory its uid does not own, which a
+        // bind from the host cannot guarantee. Short syntax because the long one has no uid / gid. docs/claude-code.md
+        tmpfs: [
+          remoteHome + '/.claude/daemon:uid=' + remoteUid + ',gid=' + remoteGid + ',mode=0700',
         ],
       },
     },

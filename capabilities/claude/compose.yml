@@ -1,5 +1,7 @@
 services:
   agent:
+    tmpfs:
+      - "/home/${DCC_USER:-agent}/.claude/daemon:uid=${DCC_UID:-1000},gid=${DCC_GID:-${DCC_UID:-1000}},mode=0700"
     volumes:
       - source: "${DCC_CLAUDE_DIR:-${HOME}/.claude}"
         target: "/home/${DCC_USER:-agent}/.claude"

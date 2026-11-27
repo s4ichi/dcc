@@ -25,7 +25,7 @@ ARG USERNAME=agent
 ARG USER_UID=1000
 ARG USER_GID=${USER_UID}
 # renovate: datasource=golang-version depName=go
-ARG GO_VERSION=1.27.3
+ARG GO_VERSION=1.27.4
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -164,8 +164,8 @@ RUN set -eux; \
 # install.sh itself verifies the binary against the checksum in the distributor's manifest. The sha256 changes when the
 # distributor updates install.sh, so if the build fails, re-fetch it with `curl -fsSL https://claude.ai/install.sh | sha256sum` and review the diff.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.325
-ARG CLAUDE_INSTALL_SHA256=3a68d3406cf674e17bed1733a4dcf37805e2e47d87417700007d7e1aa766a944
+ARG CLAUDE_CODE_VERSION=2.1.330
+ARG CLAUDE_INSTALL_SHA256=2c5506d110560bf618bbe88f678f2c2a0047c86a9c6585fc84976120b1de0b44
 RUN set -eux; \
     curl -fsSL -o /tmp/claude-install.sh https://claude.ai/install.sh; \
     echo "${CLAUDE_INSTALL_SHA256}  /tmp/claude-install.sh" | sha256sum -c -; \
@@ -177,7 +177,7 @@ RUN set -eux; \
 
 # Layer 6: yq (YAML/JSON/XML processor)
 # renovate: datasource=github-releases depName=mikefarah/yq
-ARG YQ_VERSION=v4.54.1
+ARG YQ_VERSION=v4.54.3
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -236,11 +236,11 @@ RUN set -eux; \
 
 # Layer 9: AWS CLI v2
 # renovate: datasource=github-tags depName=aws/aws-cli
-ARG AWSCLI_VERSION=2.39.0
+ARG AWSCLI_VERSION=2.40.3
 # sha256: https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip
-ARG AWSCLI_SHA256_X86_64=6c89ce7ed7bc0a2520e2bc3eeedfea4e2eb2e7da2836860c9471871408404036
+ARG AWSCLI_SHA256_X86_64=4770c06c4ecfc8ba94b60d89e6c7018ab7ea2cf5341b1ef05f6f93c5d6e8b705
 # sha256: https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${AWSCLI_VERSION}.zip
-ARG AWSCLI_SHA256_AARCH64=05da9395b4d148c42e959192650bf4a7cbb59ea275fa334d0936c593c27b946f
+ARG AWSCLI_SHA256_AARCH64=4c5f080c6c294eb0da77734c4520f5b5089cf45a4ee757ca34ddf7f9e512e66a
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -258,7 +258,7 @@ RUN set -eux; \
 
 # Layer 10: uv / uvx (Python package & project manager)
 # renovate: datasource=github-releases depName=astral-sh/uv
-ARG UV_VERSION=0.13.6
+ARG UV_VERSION=0.13.8
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -288,7 +288,7 @@ RUN set -eux; \
 # Verified with codex-package_SHA256SUMS from the same release (even with --ignore-missing, it fails if nothing was verified).
 # The versioning regex skips pre-release tags (rust-v<x.y.z>-alpha.N).
 # renovate: datasource=github-releases depName=openai/codex versioning=regex:^rust-v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
-ARG CODEX_VERSION=rust-v0.165.0
+ARG CODEX_VERSION=rust-v0.169.0
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
@@ -322,7 +322,7 @@ ARG VOLTA_SHA256_X86_64=6cec054c911fb925b629a09455775af6e95dc0f5694a4c28b63979ab
 # sha256: https://github.com/volta-cli/volta/releases/download/v${VOLTA_VERSION}/volta-${VOLTA_VERSION}-linux-arm.tar.gz
 ARG VOLTA_SHA256_AARCH64=1eb92f8b711753aa576352b2e580b2f3fdadeab8664929ca1da3d0de65448517
 # renovate: datasource=node-version depName=node versioning=node
-ARG NODE_VERSION=26.13.0
+ARG NODE_VERSION=26.13.1
 ENV VOLTA_HOME=/home/${USERNAME}/.volta
 ENV PATH=${VOLTA_HOME}/bin:$PATH
 RUN set -eux; \

@@ -11,7 +11,7 @@ RUN apt-get update \
 # Expiring credentials need 2.103.0 or later, so pin a version instead of using apt's stable.
 # Renovate bumps it (renovate.json). Verified with the checksums from the same release
 # renovate: datasource=github-releases depName=cli/cli extractVersion=^v(?<version>.+)$
-ARG GH_VERSION=2.103.3
+ARG GH_VERSION=2.104.0
 RUN set -eux; \
     arch="$(uname -m)"; \
     case "${arch}" in \
