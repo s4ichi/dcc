@@ -161,6 +161,15 @@ generated_files() {
   [ "$(config | jq -r '.services.agent.volumes[] | select(.target == "/home/agent/.claude") | .type')" = volume ]
 }
 
+@test "the claude module keeps ~/.claude/daemon container-local, owned by the container user" {
+  # The host's background-service state (control key) stays on the host, and the service refuses a directory
+  # its uid does not own (docs/claude-code.md)
+  [ "$(DCC_UID=1234 DCC_GID=56 config claude | jq -c '.services.agent.tmpfs')" = '["/home/agent/.claude/daemon:uid=1234,gid=56,mode=0700"]' ]
+  [ "$(config claude | jq -c '.services.agent.tmpfs')" = '["/home/agent/.claude/daemon:uid=1000,gid=1000,mode=0700"]' ]
+  # Without the module ~/.claude is a volume the container user already owns
+  [ "$(config | jq -c '.services.agent.tmpfs')" = null ]
+}
+
 @test "repository files reach the containers as directories, never as single-file binds" {
   # A single-file bind pins the inode; git pull / checkout replace the file and the container keeps the old one
   local cfg src bad=""

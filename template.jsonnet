@@ -152,6 +152,12 @@ local credModules = {
           // pass it ro and postCreate copies it to a container-local file
           bind(claudeJson, remoteHome + '/.claude.json.host', readonly=true),
         ],
+        // The background service's state (control key, roster) is per machine: keep the host's out of the container,
+        // and give the container its own. The service also refuses a directory its uid does not own, which a
+        // bind from the host cannot guarantee. Short syntax because the long one has no uid / gid. docs/claude-code.md
+        tmpfs: [
+          remoteHome + '/.claude/daemon:uid=' + remoteUid + ',gid=' + remoteGid + ',mode=0700',
+        ],
       },
     },
   },

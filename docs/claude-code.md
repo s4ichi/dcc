@@ -17,7 +17,7 @@ Without it Claude Code still works, but in an empty environment unrelated to the
 
 | Axis | Module enabled (shared with the host) | Module disabled (empty volume) |
 |---|---|---|
-| What it can do | Claude Code in the container runs with the same settings, history, and plugins as the host, and **can rewrite them**. Only `~/.claude.json` is a container-local copy | Runs with Claude Code's default settings. Sees nothing of the host's and can change nothing |
+| What it can do | Claude Code in the container runs with the same settings, history, and plugins as the host, and **can rewrite them**. Only `~/.claude.json` (a copy) and `~/.claude/daemon` (a tmpfs) are container-local | Runs with Claude Code's default settings. Sees nothing of the host's and can change nothing |
 | Reach | `~/.claude` is **shared rw** with the host. `~/.claude.json` is passed ro and copied by postCreate | Does not reach the host's `~/.claude` / `~/.claude.json`. `~/.claude` is a volume shared across all workspaces |
 | How the key is passed | Authentication for Claude Code itself and MCP is done inside the container, and the result stays in the shared `.credentials.json` in **plaintext**. The host's Keychain is not passed | Likewise authenticated inside the container; the result stays in the volume. Nothing flows back to the host |
 
@@ -40,6 +40,7 @@ If the agent container is taken over:
 - **The volume is a fixed-name external one**: if container-local, `dcc recreate` would erase the token and require logging in each time. compose volumes are prefixed with the project name, so a login would be needed per workspace. A fixed-name (`dcc-claude-home`) external volume means one login covers all workspaces, and `dcc clear --volumes` does not delete it
 - **Do not carve out just the token**: single-file binding `.credentials.json` runs into the EXDEV problem, and copying it invalidates the host side when the refresh token rotates. The container holds its authentication independently
 - **Do not single-file bind `~/.claude.json`**: Claude Code writes this file atomically (writes a temp file, then `rename`). A single-file bind is a mount point, so `rename` fails as cross-device (EXDEV) and the settings break. It is passed ro as `.host` and copied by postCreate
+- **Do not share `~/.claude/daemon`**: it holds the state of Claude Code's background service (`control.key`, `roster.json`; used by `/fork` and background sessions), which belongs to one machine. Shared, the container could read the host service's control key, and two services would write the same roster. The service also refuses to start unless its own uid owns the directory (`refusing to use daemon dir: ... is owned by uid 502`), and on a macOS host the VM's file sharing can show the bound files under the host's uid. A tmpfs owned by the container user covers it; the owner comes from the mount options because nothing in the agent container can `chown`. The state is gone after `dcc recreate`, like the processes it describes
 - **Do not pass the Keychain**: the container is Linux and has no Keychain, and Claude Code has no means to export from it. Keeping separate token lineages for host and container is the cleaner boundary, and the container side can be revoked independently ([mcp.md](mcp.md))
 - **Mark the workspace as trusted**: trust approval is recorded in `~/.claude.json` (container-local), so it is lost on every `dcc recreate` and the prompt reappears. A workspace placed into the container is regarded as one the user has decided to open, and postCreate sets `projects["/workspaces/<basename>"].hasTrustDialogAccepted`
 - **Resolve host absolute paths via a symlink**: `plugins/installed_plugins.json` etc. contain the host's absolute paths at install time (`/Users/<user>/...`), which cannot be resolved under the container's `$HOME`. postCreate creates a `HOST_HOME → $HOME` symlink. The only side effect is that `/Users/<user>` appears in the container
@@ -52,8 +53,10 @@ If the agent container is taken over:
 |---|---|---|---|
 | `~/.claude/` (`DCC_CLAUDE_DIR`) | `/home/agent/.claude/` | **rw** | Session history, settings, plugins, skills, credentials |
 | `~/.claude.json` (`DCC_CLAUDE_JSON`) | `/home/agent/.claude.json.host` | ro | Copied to `~/.claude.json` by postCreate |
+| (none) | `/home/agent/.claude/daemon/` | rw | tmpfs (`uid` / `gid` of the container user, `0700`). The container's own background-service state; hides the host's |
 
 A bind overrides the base volume at the same target `/home/agent/.claude` (for the same target, the later compose file wins).
+The tmpfs is mounted on top of the bind, so the host's `~/.claude/daemon` is neither visible nor written (Docker creates the empty directory on the host if it is missing).
 
 `~/.claude.json` is container-local and inherits the host's state at creation time (onboarding completed, MCP server settings, theme). Later updates on the host are not reflected in an existing container (`dcc recreate`). MCP servers added inside the container (user / local scope) do not flow back to the host ([mcp.md](mcp.md)).
 
@@ -81,6 +84,7 @@ Both the binary (`~/.local/share/claude/versions/<ver>`) and the `~/.local/bin/c
 - When the module is disabled there are no personal skills, plugins, or `settings.json`, and onboarding and `/login` are needed the first time (once per volume). The host's history does not appear in `--resume`. To have container-specific settings, bind only the needed files with `local/compose.yml`
 - Keys in `projects/` are the workspace's absolute path. On the host it is `/Users/<user>/src/foo`, in the container `/workspaces/foo`, so even when shared, history for the same workspace is stored under different keys (sessions from the other side do not appear in `--resume`)
 - If paths in `settings.json` (hook command paths, etc.) are host-specific, they do not work in the container
+- Only `daemon` is carved out of the shared `~/.claude`. Background sessions started in the container are not known to the host's service and vice versa, while the files they leave elsewhere under `~/.claude` (`jobs/`, `sessions/`) are still shared
 - Running Claude Code on the host and in the container at the same time may cause write conflicts on `settings.json` etc. when shared
 - The workspace always starts as trusted, so the repository's `.claude/settings.json` (hooks, permissions) and `.mcp.json` take effect without confirmation. When opening an unfamiliar repository, review its contents on the host first. When the module is enabled, those hooks can write to the `~/.claude` shared with the host
 - `~/.claude.json` may also contain credentials (old-format `oauthAccount`, etc.). When shared, it is passed to the container, albeit ro

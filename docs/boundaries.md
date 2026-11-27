@@ -57,6 +57,7 @@ Entries whose "Module" is `always` are in the base compose (`docker-compose.yml`
 | always | volume `dcc-claude-home` (`DCC_CLAUDE_HOME_VOLUME`, external, shared by all workspaces, starts empty) | `~/.claude` | rw | volume | [claude-code.md](claude-code.md). The `claude` module overrides the same target with a bind |
 | `claude` | `~/.claude` (`DCC_CLAUDE_DIR`) | `~/.claude` | **rw** | bind | [claude-code.md](claude-code.md) |
 | `claude` | `~/.claude.json` (`DCC_CLAUDE_JSON`) | `~/.claude.json.host` | ro | bind | [claude-code.md](claude-code.md). Copied locally in postCreate |
+| `claude` | (none) | `~/.claude/daemon` | rw | tmpfs | [claude-code.md](claude-code.md). Covers the host's background-service state with a container-local directory |
 | always | volume `dcc-codex-home` (`DCC_CODEX_HOME_VOLUME`, external, shared by all workspaces, starts empty) | `~/.codex` | rw | volume | [codex.md](codex.md). The `codex` module overrides the same target with a bind |
 | `codex` | `~/.codex` (`DCC_CODEX_DIR`) | `~/.codex` | **rw** | bind | [codex.md](codex.md). Contains `auth.json` (token). Passed as a whole directory |
 | always | `<repo>/lifecycle_hooks/` | `/usr/local/lib/dcc/hooks` | ro | bind | [architecture.md](architecture.md) |
